@@ -124,15 +124,15 @@ def _parse_tags(raw: str) -> dict:
 
 
 def _tag_item(image_url: str) -> dict:
+    last_error = None
     for attempt in range(2):
         try:
             raw = _call_vision_api(image_url)
             return _parse_tags(raw)
         except (json.JSONDecodeError, ValueError, KeyError, httpx.HTTPError, RuntimeError) as exc:
+            last_error = exc
             print(f"AI tagging attempt {attempt + 1} failed: {exc}", file=sys.stderr)
-            if attempt == 1:
-                return dict(FALLBACK_TAGS)
-    return dict(FALLBACK_TAGS)
+    return {**FALLBACK_TAGS, "_error": str(last_error)}
 
 
 @router.post("/tag-item")

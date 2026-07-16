@@ -14,6 +14,7 @@ def list_items(
     category: str | None = None,
     season: str | None = None,
     occasion_tag: str | None = None,
+    target_gender: str | None = None,
     db: Session = Depends(get_db),
 ):
     query = db.query(ClothingItem)
@@ -25,6 +26,8 @@ def list_items(
         query = query.filter(ClothingItem.season == season)
     if occasion_tag:
         query = query.filter(ClothingItem.occasion_tag == occasion_tag)
+    if target_gender:
+        query = query.filter(ClothingItem.target_gender == target_gender)
     return query.order_by(ClothingItem.created_at.desc()).all()
 
 

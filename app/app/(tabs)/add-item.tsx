@@ -18,6 +18,7 @@ import { clothingApi, TagResult, uploadApi } from "../../lib/api";
 const CATEGORIES = ["top", "bottom", "dress", "outerwear", "footwear", "accessory"];
 const PATTERNS = ["solid", "striped", "printed", "checked", "other"];
 const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"];
+const TARGET_GENDERS = ["unisex", "men", "women"];
 
 export default function AddItemScreen() {
   const [step, setStep] = useState<"pick" | "loading" | "form" | "error">("pick");
@@ -33,6 +34,7 @@ export default function AddItemScreen() {
   const [pattern, setPattern] = useState("");
   const [occasion, setOccasion] = useState("");
   const [season, setSeason] = useState("");
+  const [targetGender, setTargetGender] = useState("unisex");
 
   const [saving, setSaving] = useState(false);
 
@@ -82,6 +84,12 @@ export default function AddItemScreen() {
       const tags = await uploadApi.tagItem(image_url);
       applyTags(tags);
       setStep("form");
+      if (tags._error) {
+        Alert.alert(
+          "AI Analysis Unavailable",
+          "Auto-tagging failed. You can fill in the fields manually.\n\n" + tags._error
+        );
+      }
     } catch (e: any) {
       setErrorMsg(e.message || "Failed to analyze image");
       setStep("error");
@@ -113,6 +121,7 @@ export default function AddItemScreen() {
         pattern: pattern || null,
         occasion_tag: occasion || null,
         season: season.trim() || null,
+        target_gender: targetGender,
       });
       resetForm();
       router.replace("/wardrobe");
@@ -133,6 +142,7 @@ export default function AddItemScreen() {
     setPattern("");
     setOccasion("");
     setSeason("");
+    setTargetGender("unisex");
   };
 
   // ── Renderers ──
@@ -264,6 +274,9 @@ export default function AddItemScreen() {
         onChangeText={setSeason}
         placeholder="e.g. winter, all-season"
       />
+
+      <Text style={styles.label}>Target Gender</Text>
+      {renderChips(TARGET_GENDERS, targetGender, setTargetGender)}
 
       <View style={styles.formActions}>
         <TouchableOpacity

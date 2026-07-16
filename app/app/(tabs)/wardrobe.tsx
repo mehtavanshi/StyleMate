@@ -1,26 +1,41 @@
-import { useCallback, useState } from "react";
-import { StyleSheet, Text, View, FlatList, TouchableOpacity, Alert } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useCallback, useState, useMemo } from "react";
+import {
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { router, useFocusEffect } from "expo-router";
 import { clothingApi, ClothingItem } from "../../lib/api";
+import { BASE_URL } from "../../config/api";
+
+const CATEGORIES = ["top", "bottom", "dress", "outerwear", "footwear", "accessory"];
+const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"];
+const TARGET_GENDERS = ["unisex", "men", "women"];
 
 const CATEGORY_COLORS: Record<string, string> = {
   top: "#4A90D9",
   bottom: "#7B68EE",
-  shoes: "#E8A317",
-  accessory: "#E74C3C",
+  dress: "#E91E8A",
   outerwear: "#2ECC71",
+  footwear: "#E8A317",
+  accessory: "#E74C3C",
 };
 
 export default function WardrobeScreen() {
   const [items, setItems] = useState<ClothingItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+  const [selectedOccasions, setSelectedOccasions] = useState<Set<string>>(new Set());
+  const [selectedTargetGenders, setSelectedTargetGenders] = useState<Set<string>>(new Set());
 
   const loadItems = async () => {
     try {
       const data = await clothingApi.list();
       setItems(data);
-    } catch (e: any) {
-      Alert.alert("Error", e.message);
+    } catch {
     } finally {
       setLoading(false);
     }
@@ -32,30 +47,79 @@ export default function WardrobeScreen() {
     }, [])
   );
 
-  const handleDelete = (item: ClothingItem) => {
-    Alert.alert("Delete Item", `Remove "${item.name}" from wardrobe?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          await clothingApi.delete(item.id);
-          setItems((prev) => prev.filter((i) => i.id !== item.id));
-        },
-      },
-    ]);
+  const toggleFilter = (value: string, setter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
   };
 
+  const clearFilters = () => {
+    setSelectedCategories(new Set());
+    setSelectedOccasions(new Set());
+    setSelectedTargetGenders(new Set());
+  };
+
+  const filtered = useMemo(() => {
+    return items.filter((item) => {
+      const catMatch = selectedCategories.size === 0 || selectedCategories.has(item.category);
+      const occMatch = selectedOccasions.size === 0 || selectedOccasions.has(item.occasion_tag || "");
+      const genderMatch = selectedTargetGenders.size === 0 || selectedTargetGenders.has(item.target_gender || "unisex");
+      return catMatch && occMatch && genderMatch;
+    });
+  }, [items, selectedCategories, selectedOccasions, selectedTargetGenders]);
+
+  const hasFilters = selectedCategories.size > 0 || selectedOccasions.size > 0 || selectedTargetGenders.size > 0;
+
+  const renderChipRow = (
+    label: string,
+    options: string[],
+    selected: Set<string>,
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>
+  ) => (
+    <View style={styles.filterSection}>
+      <Text style={styles.filterLabel}>{label}</Text>
+      <FlatList
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        data={options}
+        keyExtractor={(o) => o}
+        contentContainerStyle={styles.chipList}
+        renderItem={({ item: o }) => {
+          const active = selected.has(o);
+          return (
+            <TouchableOpacity
+              style={[styles.chip, active && styles.chipActive]}
+              onPress={() => toggleFilter(o, setter)}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>{o}</Text>
+            </TouchableOpacity>
+          );
+        }}
+      />
+    </View>
+  );
+
   const renderItem = ({ item }: { item: ClothingItem }) => (
-    <TouchableOpacity style={styles.itemCard} onLongPress={() => handleDelete(item)}>
-      <View style={[styles.categoryBadge, { backgroundColor: CATEGORY_COLORS[item.category] || "#999" }]}>
-        <Text style={styles.categoryText}>{item.category}</Text>
+    <TouchableOpacity
+      style={styles.gridCell}
+      onPress={() => router.push(`/wardrobe/${item.id}`)}
+      activeOpacity={0.8}
+    >
+      {item.image_url ? (
+        <Image source={{ uri: `${BASE_URL}${item.image_url}` }} style={styles.gridImage} />
+      ) : (
+        <View style={[styles.gridImage, styles.gridImagePlaceholder]}>
+          <Text style={styles.placeholderText}>{item.name?.[0] || "?"}</Text>
+        </View>
+      )}
+      <View style={[styles.gridBadge, { backgroundColor: CATEGORY_COLORS[item.category] || "#999" }]}>
+        <Text style={styles.gridBadgeText}>{item.category}</Text>
       </View>
-      <View style={styles.itemInfo}>
-        <Text style={styles.itemName}>{item.name || "Unnamed"}</Text>
-        <Text style={styles.itemDetails}>
-          {[item.color, item.brand, item.season].filter(Boolean).join(" · ")}
-        </Text>
+      <View style={styles.gridOverlay}>
+        <Text style={styles.gridName} numberOfLines={1}>{item.name || "Unnamed"}</Text>
       </View>
     </TouchableOpacity>
   );
@@ -63,24 +127,43 @@ export default function WardrobeScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <Text>Loading wardrobe...</Text>
+        <Text style={styles.loadingText}>Loading wardrobe...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {items.length === 0 ? (
+      <View style={styles.filterBar}>
+        {renderChipRow("Category", CATEGORIES, selectedCategories, setSelectedCategories)}
+        {renderChipRow("Occasion", OCCASIONS, selectedOccasions, setSelectedOccasions)}
+        {renderChipRow("Gender", TARGET_GENDERS, selectedTargetGenders, setSelectedTargetGenders)}
+        {hasFilters && (
+          <TouchableOpacity style={styles.clearBtn} onPress={clearFilters}>
+            <Text style={styles.clearBtnText}>Clear filters</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {filtered.length === 0 ? (
         <View style={styles.center}>
-          <Text style={styles.emptyTitle}>Your wardrobe is empty</Text>
-          <Text style={styles.emptyText}>Go to "Add Item" tab to add your first piece.</Text>
+          <Text style={styles.emptyTitle}>
+            {items.length === 0 ? "Your wardrobe is empty" : "No items match filters"}
+          </Text>
+          <Text style={styles.emptyText}>
+            {items.length === 0
+              ? 'Go to "Add Item" tab to add your first piece.'
+              : "Try adjusting or clearing the filters."}
+          </Text>
         </View>
       ) : (
         <FlatList
-          data={items}
+          data={filtered}
           keyExtractor={(item) => String(item.id)}
+          numColumns={2}
+          columnWrapperStyle={styles.gridRow}
+          contentContainerStyle={styles.gridContainer}
           renderItem={renderItem}
-          contentContainerStyle={styles.list}
         />
       )}
     </View>
@@ -90,25 +173,48 @@ export default function WardrobeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f5f5f5" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
-  list: { padding: 16 },
-  itemCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
+  loadingText: { fontSize: 15, color: "#888" },
+
+  // Filter bar
+  filterBar: { backgroundColor: "#fff", paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "#eee" },
+  filterSection: { paddingTop: 10 },
+  filterLabel: { fontSize: 12, fontWeight: "700", color: "#999", textTransform: "uppercase", paddingHorizontal: 16, marginBottom: 6 },
+  chipList: { paddingHorizontal: 12 },
+  chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: "#e8e8e8", marginRight: 8 },
+  chipActive: { backgroundColor: "#333" },
+  chipText: { fontSize: 13, color: "#666", textTransform: "capitalize" },
+  chipTextActive: { color: "#fff" },
+  clearBtn: { alignSelf: "center", marginTop: 6, paddingVertical: 4, paddingHorizontal: 12 },
+  clearBtnText: { fontSize: 13, color: "#E74C3C", fontWeight: "600" },
+
+  // Grid
+  gridContainer: { padding: 8 },
+  gridRow: { justifyContent: "space-between", marginBottom: 8 },
+  gridCell: {
+    flex: 1,
+    marginHorizontal: 4,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    overflow: "hidden",
+    backgroundColor: "#ddd",
+    aspectRatio: 3 / 4,
   },
-  categoryBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginRight: 12 },
-  categoryText: { color: "#fff", fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
-  itemInfo: { flex: 1 },
-  itemName: { fontSize: 16, fontWeight: "600", marginBottom: 2 },
-  itemDetails: { fontSize: 13, color: "#888" },
+  gridImage: { width: "100%", height: "100%" },
+  gridImagePlaceholder: { alignItems: "center", justifyContent: "center" },
+  placeholderText: { fontSize: 32, fontWeight: "700", color: "#999" },
+  gridBadge: { position: "absolute", top: 8, left: 8, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  gridBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
+  gridOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  gridName: { color: "#fff", fontSize: 13, fontWeight: "600" },
+
+  // Empty state
   emptyTitle: { fontSize: 18, fontWeight: "600", marginBottom: 6 },
   emptyText: { fontSize: 14, color: "#888", textAlign: "center" },
 });

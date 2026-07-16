@@ -10,6 +10,7 @@ class UserBase(BaseModel):
     name: str
     email: str
     gender: Optional[str] = None
+    target_gender: Optional[str] = None
     style_preference: Optional[str] = None
 
 
@@ -36,6 +37,7 @@ class ClothingItemBase(BaseModel):
     brand: Optional[str] = None
     name: Optional[str] = None
     formality: Optional[str] = None
+    target_gender: Optional[str] = "unisex"
     tags: Optional[str] = None
 
 
@@ -53,6 +55,7 @@ class ClothingItemUpdate(BaseModel):
     brand: Optional[str] = None
     name: Optional[str] = None
     formality: Optional[str] = None
+    target_gender: Optional[str] = None
     tags: Optional[str] = None
 
 

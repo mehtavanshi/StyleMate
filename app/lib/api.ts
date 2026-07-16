@@ -11,6 +11,7 @@ export interface ClothingItem {
   season: string | null;
   occasion_tag: string | null;
   formality: string | null;
+  target_gender: string | null;
   image_url: string | null;
   tags: string | null;
   created_at: string;
@@ -41,12 +42,13 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 const DEMO_USER_ID = 1;
 
 export const clothingApi = {
-  list: (params?: { category?: string; season?: string; occasion_tag?: string }) => {
+  list: (params?: { category?: string; season?: string; occasion_tag?: string; target_gender?: string }) => {
     const query = new URLSearchParams();
     query.set("user_id", String(DEMO_USER_ID));
     if (params?.category) query.set("category", params.category);
     if (params?.season) query.set("season", params.season);
     if (params?.occasion_tag) query.set("occasion_tag", params.occasion_tag);
+    if (params?.target_gender) query.set("target_gender", params.target_gender);
     return apiFetch<ClothingItem[]>(`/clothing/?${query.toString()}`);
   },
   get: (id: number) => apiFetch<ClothingItem>(`/clothing/${id}`),
@@ -74,7 +76,35 @@ export interface TagResult {
   pattern: string;
   occasion_tag: string;
   season: string;
+  _error?: string;
 }
+
+export interface OutfitItem {
+  id: number;
+  name: string | null;
+  category: string;
+  color: string | null;
+  pattern: string | null;
+  image_url: string | null;
+  target_gender: string | null;
+}
+
+export interface OutfitSuggestion {
+  items: OutfitItem[];
+  score: number;
+  reason: string;
+}
+
+export const outfitApi = {
+  suggest: (params?: { occasion_tag?: string; target_gender?: string; limit?: number }) => {
+    const query = new URLSearchParams();
+    query.set("user_id", String(DEMO_USER_ID));
+    if (params?.occasion_tag) query.set("occasion_tag", params.occasion_tag);
+    if (params?.target_gender) query.set("target_gender", params.target_gender);
+    if (params?.limit) query.set("limit", String(params.limit));
+    return apiFetch<OutfitSuggestion[]>(`/outfit-suggestions?${query.toString()}`);
+  },
+};
 
 export const uploadApi = {
   uploadImage: async (fileUri: string, fileName: string, mimeType: string) => {
@@ -87,7 +117,6 @@ export const uploadApi = {
     const res = await fetch(`${BASE_URL}/upload-image`, {
       method: "POST",
       body: formData,
-      headers: { "Content-Type": "multipart/form-data" },
     });
     if (!res.ok) throw new Error(`Upload API error ${res.status}: ${await res.text()}`);
     return res.json() as Promise<{ image_url: string }>;
