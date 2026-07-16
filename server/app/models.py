@@ -1,0 +1,39 @@
+from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+from app.database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=False, index=True)
+    gender = Column(String, nullable=True)
+    style_preference = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    clothing_items = relationship("ClothingItem", back_populates="user")
+
+
+class ClothingItem(Base):
+    __tablename__ = "clothing_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    image_url = Column(String, nullable=True)
+    category = Column(String, nullable=False)
+    color = Column(String, nullable=True)
+    pattern = Column(String, nullable=True)
+    occasion_tag = Column(String, nullable=True)
+    season = Column(String, nullable=True)
+    brand = Column(String, nullable=True)
+    name = Column(String, nullable=True)
+    formality = Column(String, nullable=True)
+    tags = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", back_populates="clothing_items")
