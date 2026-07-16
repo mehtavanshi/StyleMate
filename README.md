@@ -67,30 +67,63 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
+### Database setup (after git pull)
+
+The SQLite database (`stylemate.db`) and uploaded images (`uploads/`) are not tracked in git. After cloning/pulling:
+
+```bash
+cd server
+
+# Create and activate venv (if not already done)
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Create tables + seed demo data
+python scripts/init_db.py
+python scripts/seed_db.py
+```
+
+`init_db.py` creates the `users` and `clothing_items` tables. `seed_db.py` creates a demo user with 5 sample wardrobe items.
+
+The database file is created at `server/stylemate.db`. It's local-only and won't sync across devices — that's normal for development.
+
+### Running the server
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
 The API will be available at **http://127.0.0.1:8000**.
 
 - Health check: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health) → returns `{"status": "ok"}`
 - Interactive API docs (Swagger UI): [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
-On first run, SQLAlchemy will automatically create a local SQLite database file (`stylemate.db`) inside `/server`, based on the models defined in `app/models.py`.
+Uploaded images are served from `http://127.0.0.1:8000/uploads/` via FastAPI's StaticFiles mount.
 
 ---
 
 ## Connecting the app to the server
 
-By default, mobile devices/simulators can't reach `127.0.0.1` on your computer directly:
+The base URL is configured in `app/config/api.ts`. Update the `android` value to your machine's LAN IP:
 
-- **iOS simulator:** `http://127.0.0.1:8000` works as-is.
-- **Android emulator:** use `http://10.0.2.2:8000` instead.
-- **Physical device (Expo Go):** use your computer's local network IP, e.g. `http://192.168.1.23:8000` (find it with `ipconfig` on Windows or `ifconfig`/`ipconfig getifaddr en0` on macOS). Make sure your phone and computer are on the same Wi-Fi network.
+```typescript
+android: "http://YOUR_LAN_IP:8000",
+```
 
-You'll likely want to store this base URL in a config file or environment variable in the app once you start wiring up real API calls.
+Find your LAN IP with:
+```bash
+ip addr show | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d/ -f1
+```
+
+- **Physical device (Expo Go):** use the LAN IP above. Phone and computer must be on the same Wi-Fi network.
+- **Android emulator:** `http://10.0.2.2:8000` works by default.
+- **iOS simulator:** `http://127.0.0.1:8000` works by default.
 
 ---
 
 ## Next steps
 
-- Build out the UI for each of the four screens in `/app/app/(tabs)`.
-- Add more SQLAlchemy models and API routes in `/server/app` (e.g. wardrobe items, outfits, users).
-- Add request/response schemas with Pydantic for your API endpoints.
-- Wire up the app screens to call the FastAPI backend.
+- Add outfit suggestions and pairing logic in `/app/app/(tabs)/outfit-suggestions`.
+- Style and polish the existing screens (Home, Wardrobe, Add Item, Outfit Suggestions).
+- Add more API routes in `/server/app/routers/` as needed.

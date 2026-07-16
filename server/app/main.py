@@ -1,12 +1,17 @@
+from pathlib import Path
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
 from app import models  # noqa: F401
 from app.models import ClothingItem
-from app.routers import users, clothing, upload, tagging
+from app.routers import users, clothing, upload, tagging, outfits
 from app.schemas import ClothingItemCreate, ClothingItemResponse
+
+UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
 
 Base.metadata.create_all(bind=engine)
 
@@ -24,6 +29,7 @@ app.include_router(users.router)
 app.include_router(clothing.router)
 app.include_router(upload.router)
 app.include_router(tagging.router)
+app.include_router(outfits.router)
 
 
 @app.get("/health")
@@ -38,3 +44,7 @@ def create_clothing_item(item: ClothingItemCreate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(db_item)
     return db_item
+
+
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
