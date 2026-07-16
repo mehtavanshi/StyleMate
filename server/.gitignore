@@ -5,3 +5,4 @@ venv/
 *.db
 .env
 /uploads/
+../api_key.md

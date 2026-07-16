@@ -67,3 +67,35 @@ export const clothingApi = {
 export const usersApi = {
   get: (id: number) => apiFetch<User>(`/users/${id}`),
 };
+
+export interface TagResult {
+  category: string;
+  dominant_color: string;
+  pattern: string;
+  occasion_tag: string;
+  season: string;
+}
+
+export const uploadApi = {
+  uploadImage: async (fileUri: string, fileName: string, mimeType: string) => {
+    const formData = new FormData();
+    formData.append("file", {
+      uri: fileUri,
+      name: fileName,
+      type: mimeType,
+    } as any);
+    const res = await fetch(`${BASE_URL}/upload-image`, {
+      method: "POST",
+      body: formData,
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    if (!res.ok) throw new Error(`Upload API error ${res.status}: ${await res.text()}`);
+    return res.json() as Promise<{ image_url: string }>;
+  },
+
+  tagItem: (imageUrl: string) =>
+    apiFetch<TagResult>("/tag-item", {
+      method: "POST",
+      body: JSON.stringify({ image_url: imageUrl }),
+    }),
+};

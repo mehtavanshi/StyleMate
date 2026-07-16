@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { StyleSheet, Text, View, FlatList, TouchableOpacity, Alert } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { clothingApi, ClothingItem } from "../../lib/api";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -25,9 +26,11 @@ export default function WardrobeScreen() {
     }
   };
 
-  useEffect(() => {
-    loadItems();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadItems();
+    }, [])
+  );
 
   const handleDelete = (item: ClothingItem) => {
     Alert.alert("Delete Item", `Remove "${item.name}" from wardrobe?`, [
