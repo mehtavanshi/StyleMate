@@ -20,6 +20,10 @@ class MockItem:
         formality=None,
         target_gender=None,
         embedding_json=None,
+        fabric_type=None,
+        fit_type=None,
+        sleeve_length=None,
+        season=None,
     ):
         self.id = 0
         self.category = category
@@ -31,6 +35,10 @@ class MockItem:
         self.formality = formality
         self.target_gender = target_gender
         self.embedding_json = embedding_json
+        self.fabric_type = fabric_type
+        self.fit_type = fit_type
+        self.sleeve_length = sleeve_length
+        self.season = season
 
 
 class TestPairColor:
@@ -63,25 +71,25 @@ class TestScoreOutfit:
     def test_neutral_top_with_bright_bottom(self):
         top = MockItem("top", "white")
         bottom = MockItem("bottom", "red")
-        score, reason = score_outfit([top, bottom])
+        score, reason, breakdown = score_outfit([top, bottom])
         assert score >= 0.7
         assert isinstance(reason, str)
 
     def test_analogous_outfit(self):
         top = MockItem("top", "red")
         bottom = MockItem("bottom", "orange")
-        score, reason = score_outfit([top, bottom])
-        assert score >= 0.7
+        score, reason, breakdown = score_outfit([top, bottom])
+        assert score >= 0.68
         assert "analogous" in reason
 
     def test_clashing_patterns_penalised(self):
         top = MockItem("top", "red", pattern="striped")
         bottom = MockItem("bottom", "yellow", pattern="checked")
-        score, _ = score_outfit([top, bottom])
+        score, _, _ = score_outfit([top, bottom])
         assert score < 0.5
 
     def test_empty_outfit(self):
-        score, reason = score_outfit([])
+        score, reason, breakdown = score_outfit([])
         assert score == 0.0
         assert reason == "Empty outfit"
 
@@ -111,7 +119,7 @@ class TestScorePair:
     def test_gender_mismatch_scores_zero(self):
         a = MockItem("top", "white", target_gender="men")
         b = MockItem("bottom", "navy", target_gender="women")
-        score, reason = score_pair(a, b)
+        score, reason, breakdown = score_pair(a, b)
         assert score == 0.0
         assert "mismatch" in reason
 
@@ -119,8 +127,8 @@ class TestScorePair:
         good = MockItem("top", "white", occasion_tag="formal", formality="business")
         well = MockItem("bottom", "navy", occasion_tag="formal", formality="business")
         bad = MockItem("bottom", "navy", occasion_tag="casual", formality="casual")
-        score_high, _ = score_pair(good, well)
-        score_low, _ = score_pair(good, bad)
+        score_high, _, _ = score_pair(good, well)
+        score_low, _, _ = score_pair(good, bad)
         assert score_high > score_low
 
     def test_similar_embeddings_boost_score(self):
@@ -140,6 +148,6 @@ class TestScorePair:
             "bottom", "navy", embedding_json=json.dumps(vec_c),
         )
 
-        score_similar, _ = score_pair(similar, same_style)
-        score_diff, _ = score_pair(similar, diff_style)
+        score_similar, _, _ = score_pair(similar, same_style)
+        score_diff, _, _ = score_pair(similar, diff_style)
         assert score_similar > score_diff

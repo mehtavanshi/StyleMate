@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User
-from app.schemas import UserCreate, UserResponse
+from app.schemas import BodyTypeIn, UserCreate, UserResponse
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -30,4 +30,15 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@router.post("/{user_id}/body-type", response_model=UserResponse)
+def set_body_type(user_id: int, body_type_in: BodyTypeIn, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.body_type = body_type_in.body_type
+    db.commit()
+    db.refresh(user)
     return user

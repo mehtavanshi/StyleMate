@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +12,16 @@ import {
   View,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { outfitApi, OutfitSuggestion, OutfitItem } from "../../lib/api";
+import * as Linking from "expo-linking";
+import {
+  outfitApi,
+  feedbackApi,
+  shoppingApi,
+  OutfitSuggestion,
+  OutfitItem,
+  ShoppingGroup,
+  ShoppingProduct,
+} from "../../lib/api";
 import { BASE_URL } from "../../config/api";
 
 const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"];
@@ -24,6 +34,15 @@ const CATEGORY_COLORS: Record<string, string> = {
   outerwear: "#2ECC71",
   footwear: "#E8A317",
   accessory: "#E74C3C",
+};
+
+const BREAKDOWN_COLORS: Record<string, string> = {
+  color: "#4A90D9",
+  embedding: "#9B59B6",
+  hard_rules: "#2ECC71",
+  fabric: "#E8A317",
+  fit: "#E74C3C",
+  season: "#1ABC9C",
 };
 
 function scoreColor(score: number): string {
@@ -52,10 +71,55 @@ function ItemThumb({ item }: { item: OutfitItem }) {
       <View style={[styles.thumbBadge, { backgroundColor: bg }]}>
         <Text style={styles.thumbBadgeText}>{item.category}</Text>
       </View>
+      {item.fabric_type && (
+        <View style={[styles.attrBadge, { top: 26, backgroundColor: bg + "bb" }]}>
+          <Text style={styles.attrBadgeText}>{item.fabric_type}</Text>
+        </View>
+      )}
+      {item.fit_type && (
+        <View style={[styles.attrBadge, { top: 44, backgroundColor: bg + "88" }]}>
+          <Text style={styles.attrBadgeText}>{item.fit_type}</Text>
+        </View>
+      )}
       <View style={styles.thumbOverlay}>
         <Text style={styles.thumbName} numberOfLines={1}>{item.name || "Unnamed"}</Text>
       </View>
     </TouchableOpacity>
+  );
+}
+
+function BreakdownBar({ breakdown }: { breakdown: Record<string, number> }) {
+  const entries = Object.entries(breakdown);
+  const total = entries.reduce((sum, [, v]) => sum + v, 0);
+  if (total === 0 || entries.length === 0) return null;
+  return (
+    <View style={styles.breakdownRow}>
+      {entries.map(([key, value]) => {
+        const color = BREAKDOWN_COLORS[key] || "#999";
+        const pct = Math.max((value / total) * 100, 4);
+        return (
+          <View
+            key={key}
+            style={[styles.breakdownSegment, { flex: pct, backgroundColor: color }]}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+function BreakdownLegend({ breakdown }: { breakdown: Record<string, number> }) {
+  const entries = Object.entries(breakdown);
+  return (
+    <View style={styles.legendRow}>
+      {entries.map(([key, value]) => (
+        <View key={key} style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: BREAKDOWN_COLORS[key] || "#999" }]} />
+          <Text style={styles.legendLabel}>{key}</Text>
+          <Text style={styles.legendValue}>{value.toFixed(2)}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -64,6 +128,33 @@ export default function OutfitSuggestionsScreen() {
   const [loading, setLoading] = useState(true);
   const [selectedOccasion, setSelectedOccasion] = useState<string | null>(null);
   const [selectedTargetGender, setSelectedTargetGender] = useState<string | null>(null);
+  const [feedbackGiven, setFeedbackGiven] = useState<Record<string, boolean>>({});
+  const [pendingFeedback, setPendingFeedback] = useState<Record<string, boolean>>({});
+  const [toast, setToast] = useState<string | null>(null);
+  const [shoppingGroups, setShoppingGroups] = useState<ShoppingGroup[]>([]);
+  const [shoppingLoading, setShoppingLoading] = useState(true);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 1800);
+  };
+
+  const loadShopping = async () => {
+    setShoppingLoading(true);
+    try {
+      const data = await shoppingApi.suggest({
+        target_gender: selectedTargetGender || undefined,
+        occasion_tag: selectedOccasion || undefined,
+      });
+      setShoppingGroups(data);
+    } catch (e: any) {
+      // Non-fatal: the outfit suggestions still work without shopping.
+      console.warn("Shopping suggestions failed:", e.message);
+      setShoppingGroups([]);
+    } finally {
+      setShoppingLoading(false);
+    }
+  };
 
   const loadSuggestions = async () => {
     setLoading(true);
@@ -83,29 +174,186 @@ export default function OutfitSuggestionsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadSuggestions();
+      loadShopping();
     }, [selectedOccasion, selectedTargetGender])
   );
 
-  const renderCard = ({ item }: { item: OutfitSuggestion }) => (
-    <View style={styles.card}>
-      <View style={styles.cardImages}>
-        {item.items.map((outfitItem, i) => (
-          <View key={outfitItem.id} style={styles.thumbOuter}>
-            <ItemThumb item={outfitItem} />
+  const submitFeedback = async (key: string, itemIds: number[], liked: boolean) => {
+    if (feedbackGiven[key] || pendingFeedback[key]) return;
+    setPendingFeedback((p) => ({ ...p, [key]: true }));
+    try {
+      await feedbackApi.create(itemIds, liked);
+      setFeedbackGiven((g) => ({ ...g, [key]: true }));
+      showToast(liked ? "Liked outfit 👍" : "Noted — outfit disliked 👎");
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    } finally {
+      setPendingFeedback((p) => ({ ...p, [key]: false }));
+    }
+  };
+
+  const renderCard = ({ item, index }: { item: OutfitSuggestion; index: number }) => {
+    const key = `suggestion-${index}`;
+    const given = feedbackGiven[key];
+    const pending = pendingFeedback[key];
+    const itemIds = item.items.map((o) => o.id);
+    return (
+      <View style={[styles.card, given && styles.cardFeedbackGiven]}>
+        <View style={styles.cardImages}>
+          {item.items.map((outfitItem) => (
+            <View key={outfitItem.id} style={styles.thumbOuter}>
+              <ItemThumb item={outfitItem} />
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.cardFooter}>
+          <Text style={styles.reasonText}>{item.reason}</Text>
+          <View style={[styles.scoreBadge, { backgroundColor: scoreColor(item.score) + "22" }]}>
+            <Text style={[styles.scoreText, { color: scoreColor(item.score) }]}>
+              ★ {item.score.toFixed(2)}
+            </Text>
+          </View>
+        </View>
+        <BreakdownBar breakdown={item.breakdown || {}} />
+        <BreakdownLegend breakdown={item.breakdown || {}} />
+
+        <View style={styles.feedbackRow}>
+          <TouchableOpacity
+            style={[styles.feedbackBtn, given && styles.feedbackBtnDisabled]}
+            disabled={given || pending}
+            onPress={() => submitFeedback(key, itemIds, true)}
+          >
+            <Text style={[styles.feedbackBtnText, given && styles.feedbackBtnTextDone]}>
+              {given ? "👍 Saved" : "👍 Like"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.feedbackBtn, styles.feedbackBtnDislike, given && styles.feedbackBtnDisabled]}
+            disabled={given || pending}
+            onPress={() => submitFeedback(key, itemIds, false)}
+          >
+            <Text style={[styles.feedbackBtnText, given && styles.feedbackBtnTextDone]}>
+              {given ? "👎 Saved" : "👎 Dislike"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  const openAffiliate = async (link: string) => {
+    if (!link) return;
+    try {
+      const supported = await Linking.canOpenURL(link);
+      if (supported) {
+        await Linking.openURL(link);
+      } else {
+        Alert.alert("Can't open link", link);
+      }
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    }
+  };
+
+  const renderProductCard = ({ item }: { item: ShoppingProduct }) => {
+    // Meesho is a deep-link fallback (no real product API), so render it
+    // distinctly as a "search" button — never as a specific product card
+    // with price/image, which would mislead the user.
+    if (item.source === "meesho") {
+      return (
+        <TouchableOpacity
+          style={styles.meeshoButton}
+          activeOpacity={0.85}
+          onPress={() => openAffiliate(item.affiliate_link)}
+        >
+          <Text style={styles.meeshoButtonText}>🔍 Search this on Meesho</Text>
+          <Text style={styles.meeshoButtonSub} numberOfLines={1}>
+            {item.name}
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        style={styles.productCard}
+        activeOpacity={0.85}
+        onPress={() => openAffiliate(item.affiliate_link)}
+      >
+        {item.image_url ? (
+          <Image source={{ uri: item.image_url }} style={styles.productImage} />
+        ) : (
+          <View style={[styles.productImage, styles.productImagePlaceholder]}>
+            <Text style={styles.productInitial}>
+              {(item.name || "?")[0]?.toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <Text style={styles.productName} numberOfLines={2}>
+          {item.name}
+        </Text>
+        <Text style={styles.productPrice}>
+          {item.currency} {item.price.toFixed(2)}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const CompleteTheLook = () => {
+    if (shoppingLoading) {
+      return (
+        <View style={styles.shoppingSection}>
+          <Text style={styles.shoppingHeading}>Complete the Look</Text>
+          <View style={styles.shoppingRow}>
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={styles.productCard}>
+                <View style={[styles.productImage, styles.skeleton]} />
+                <View style={[styles.skeletonLine, { width: "80%" }]} />
+                <View style={[styles.skeletonLine, { width: "50%" }]} />
+              </View>
+            ))}
+          </View>
+        </View>
+      );
+    }
+
+    if (!shoppingGroups || shoppingGroups.length === 0) {
+      return (
+        <View style={styles.shoppingSection}>
+          <Text style={styles.shoppingHeading}>Complete the Look</Text>
+          <Text style={styles.shoppingEmpty}>
+            No suggestions right now — your wardrobe looks well rounded!
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.shoppingSection}>
+        <Text style={styles.shoppingHeading}>Complete the Look</Text>
+        {shoppingGroups.map((group, gi) => (
+          <View key={`${group.missing_category}-${gi}`} style={styles.gapBlock}>
+            <Text style={styles.gapReason}>{group.gap_reason}</Text>
+            {group.products.length === 0 ? (
+              <Text style={styles.gapNoProducts}>
+                No matches found right now.
+              </Text>
+            ) : (
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={group.products}
+                keyExtractor={(p, i) => `${group.missing_category}-${i}`}
+                contentContainerStyle={styles.shoppingRow}
+                renderItem={renderProductCard}
+              />
+            )}
           </View>
         ))}
       </View>
-
-      <View style={styles.cardFooter}>
-        <Text style={styles.reasonText}>{item.reason}</Text>
-        <View style={[styles.scoreBadge, { backgroundColor: scoreColor(item.score) + "22" }]}>
-          <Text style={[styles.scoreText, { color: scoreColor(item.score) }]}>
-            ★ {item.score.toFixed(2)}
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -177,13 +425,21 @@ export default function OutfitSuggestionsScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList
-          data={suggestions}
-          keyExtractor={(item, i) => `suggestion-${i}`}
-          contentContainerStyle={styles.list}
-          renderItem={renderCard}
-        />
+        <ScrollView contentContainerStyle={styles.list}>
+          {suggestions.map((item, index) => (
+            <View key={`suggestion-${index}`}>{renderCard({ item, index })}</View>
+          ))}
+          <CompleteTheLook />
+        </ScrollView>
       )}
+
+      <Modal visible={toast !== null} transparent animationType="fade">
+        <View style={styles.toastWrap}>
+          <View style={styles.toastBox}>
+            <Text style={styles.toastText}>{toast}</Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -236,6 +492,50 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  cardFeedbackGiven: { opacity: 0.6 },
+  feedbackRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    paddingTop: 6,
+  },
+  feedbackBtn: {
+    flex: 1,
+    backgroundColor: "#2ECC7155",
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#2ECC71",
+  },
+  feedbackBtnDislike: {
+    backgroundColor: "#E74C3C33",
+    borderColor: "#E74C3C",
+  },
+  feedbackBtnDisabled: {
+    backgroundColor: "#eeeeee",
+    borderColor: "#cccccc",
+  },
+  feedbackBtnText: { fontSize: 14, fontWeight: "700", color: "#1c1c1c" },
+  feedbackBtnTextDone: { color: "#999" },
+
+  // Toast
+  toastWrap: {
+    flex: 1,
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingBottom: 40,
+    backgroundColor: "transparent",
+  },
+  toastBox: {
+    backgroundColor: "rgba(0,0,0,0.82)",
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    maxWidth: "85%",
+  },
+  toastText: { color: "#fff", fontSize: 14, fontWeight: "600", textAlign: "center" },
   cardImages: {
     flexDirection: "row",
     padding: 10,
@@ -255,6 +555,14 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   thumbBadgeText: { color: "#fff", fontSize: 9, fontWeight: "700", textTransform: "uppercase" },
+  attrBadge: {
+    position: "absolute",
+    left: 6,
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  attrBadgeText: { color: "#fff", fontSize: 8, fontWeight: "600", textTransform: "uppercase" },
   thumbOverlay: {
     position: "absolute",
     bottom: 0,
@@ -285,4 +593,117 @@ const styles = StyleSheet.create({
   // Empty
   emptyTitle: { fontSize: 18, fontWeight: "600", marginBottom: 8 },
   emptyText: { fontSize: 14, color: "#888", textAlign: "center", lineHeight: 22 },
+
+  // Breakdown
+  breakdownRow: {
+    flexDirection: "row",
+    height: 4,
+    marginHorizontal: 14,
+    marginBottom: 6,
+    borderRadius: 2,
+    overflow: "hidden",
+    backgroundColor: "#eee",
+  },
+  breakdownSegment: {
+    height: "100%",
+  },
+  legendRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    gap: 8,
+  },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 3 },
+  legendDot: { width: 6, height: 6, borderRadius: 3 },
+  legendLabel: { fontSize: 10, color: "#888", textTransform: "capitalize" },
+  legendValue: { fontSize: 10, color: "#555", fontWeight: "600" },
+
+  // Complete the Look
+  shoppingSection: {
+    backgroundColor: "#fff",
+    marginTop: 6,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+  },
+  shoppingHeading: {
+    fontSize: 17,
+    fontWeight: "700",
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  shoppingRow: { paddingHorizontal: 16, gap: 12 },
+  shoppingEmpty: {
+    fontSize: 14,
+    color: "#888",
+    paddingHorizontal: 16,
+    lineHeight: 22,
+  },
+  gapBlock: { marginBottom: 18 },
+  gapReason: {
+    fontSize: 13,
+    color: "#444",
+    fontStyle: "italic",
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  gapNoProducts: {
+    fontSize: 13,
+    color: "#aaa",
+    paddingHorizontal: 16,
+  },
+  productCard: {
+    width: 140,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#eee",
+    padding: 8,
+  },
+  meeshoButton: {
+    width: 160,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#E5408A",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  meeshoButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#E5408A",
+    textAlign: "center",
+  },
+  meeshoButtonSub: {
+    fontSize: 11,
+    color: "#999",
+    marginTop: 4,
+    textAlign: "center",
+  },
+  productImage: {
+    width: "100%",
+    height: 120,
+    borderRadius: 8,
+    backgroundColor: "#e0e0e0",
+    marginBottom: 8,
+  },
+  productImagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  productInitial: { fontSize: 28, fontWeight: "700", color: "#999" },
+  productName: { fontSize: 12, color: "#333", height: 32, marginBottom: 4 },
+  productPrice: { fontSize: 13, fontWeight: "700", color: "#2ECC71" },
+  skeleton: { backgroundColor: "#e6e6e6" },
+  skeletonLine: {
+    height: 10,
+    borderRadius: 4,
+    backgroundColor: "#e6e6e6",
+    marginBottom: 6,
+  },
 });

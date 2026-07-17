@@ -6,3 +6,5 @@ venv/
 .env
 /uploads/
 ../api_key.md
+models/
+*.pkl

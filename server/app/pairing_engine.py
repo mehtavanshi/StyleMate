@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 
+import httpx
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.models import ClothingItem
 from app.style_embeddings import cosine_similarity
+
+from app.config import get_style_boost, get_body_type_rules
 
 # ── Color definitions: HSL_MAP ──
 
@@ -91,10 +98,57 @@ _FASHION_CLASHES: set[frozenset[str]] = {
     frozenset(("fuchsia", "rust")),
 }
 
-# ── Blended scoring weights (tune these to adjust scoring balance) ──
-COLOR_WEIGHT = 0.50
-EMBEDDING_WEIGHT = 0.35
+# ── Fabric compatibility ──
+
+_FABRIC_CLASHES: set[frozenset[str]] = {
+    frozenset(("silk", "denim")),
+    frozenset(("silk", "wool")),
+    frozenset(("leather", "linen")),
+    frozenset(("silk", "synthetic")),
+    frozenset(("knit", "leather")),
+}
+
+_FABRIC_AFFINITY: set[frozenset[str]] = {
+    frozenset(("cotton", "denim")),
+    frozenset(("cotton", "linen")),
+    frozenset(("wool", "leather")),
+    frozenset(("silk", "knit")),
+    frozenset(("cotton", "knit")),
+    frozenset(("denim", "leather")),
+}
+
+# ── Fit contrast scores (top_fit, bottom_fit) → score ──
+
+_FIT_CONTRAST: dict[tuple[str, str], float] = {
+    ("slim", "oversized"):   0.90,
+    ("slim", "loose"):       0.85,
+    ("oversized", "slim"):   0.90,
+    ("loose", "slim"):       0.85,
+    ("regular", "oversized"): 0.80,
+    ("regular", "loose"):    0.70,
+    ("slim", "regular"):     0.65,
+    ("oversized", "loose"):  0.30,
+    ("loose", "oversized"):  0.30,
+}
+
+# ── Sleeve layering bonus pairs ──
+
+_SLEEVE_LAYERING_BONUS: set[tuple[str, str]] = {
+    ("sleeveless", "long"),
+    ("short", "long"),
+    ("sleeveless", "three_quarter"),
+}
+
+# ── Blended scoring weights ──
+COLOR_WEIGHT = 0.35
+EMBEDDING_WEIGHT = 0.25
 HARD_RULE_WEIGHT = 0.15
+FABRIC_WEIGHT = 0.10
+FIT_WEIGHT = 0.08
+SEASON_WEIGHT = 0.07
+
+# ── Body-type style-tag scoring weight ──
+STYLE_TAG_WEIGHT = 0.07
 
 # ── Optional learned-compatibility override (Step 6) ──
 USE_LEARNED_COMPATIBILITY = os.environ.get("USE_LEARNED_COMPATIBILITY", "false").lower() == "true"
@@ -104,6 +158,9 @@ LEARNED_WEIGHT = 0.40
 LEARNED_COLOR_WEIGHT = 0.30
 LEARNED_EMBEDDING_WEIGHT = 0.20
 LEARNED_HARD_RULE_WEIGHT = 0.10
+
+# Cache body-type rules at module load so we never re-read the file per request.
+_BODY_TYPE_RULES = get_body_type_rules()
 
 
 def _normalise(color: str | None) -> str:
@@ -137,6 +194,236 @@ def _is_neutral_hsl(hsl: tuple[float, float, float], name: str = "") -> bool:
     return False
 
 
+# ── Wardrobe gap detection (deterministic, no AI) ──
+
+# Core categories every versatile wardrobe should have in multiples.
+CORE_CATEGORIES = ("top", "bottom", "footwear")
+# Minimum number of items required in a core category before it's "covered".
+MIN_CORE_ITEMS = 2
+
+
+@dataclass
+class Gap:
+    missing_category: str
+    reason: str
+    existing_items_to_pair_with: list[int] = field(default_factory=list)
+
+
+def find_gaps(user_id: int, db: Session) -> list[Gap]:
+    """Count what a user's wardrobe is missing using pure aggregation.
+
+    Flags a gap when:
+      * a core category (top, bottom, footwear) has fewer than 2 items, or
+      * a category exists but has zero neutral-colored items.
+
+    No AI call — this is deterministic counting over the wardrobe the user
+    already provided.
+    """
+    items = db.query(ClothingItem).filter(ClothingItem.user_id == user_id).all()
+
+    by_category: Counter = Counter()
+    neutral_by_category: Counter = Counter()
+    ids_by_category: dict[str, list[int]] = {}
+
+    for item in items:
+        cat = _normalise(item.category)
+        if not cat:
+            continue
+        by_category[cat] += 1
+        ids_by_category.setdefault(cat, []).append(item.id)
+
+        hsl = _color_to_hsl(item.color)
+        if hsl is not None and _is_neutral_hsl(hsl, item.color or ""):
+            neutral_by_category[cat] += 1
+
+    gaps: list[Gap] = []
+
+    # Rule 1: core categories with too few items.
+    for cat in CORE_CATEGORIES:
+        count = by_category.get(cat, 0)
+        if count < MIN_CORE_ITEMS:
+            # Suggest pairing with whatever else the user already owns.
+            existing = [
+                iid
+                for other_cat in ids_by_category
+                if other_cat != cat
+                for iid in ids_by_category[other_cat]
+            ]
+            gaps.append(
+                Gap(
+                    missing_category=cat,
+                    reason=(
+                        f"Only {count} {cat}(s) — add at least "
+                        f"{MIN_CORE_ITEMS - count} more for versatile outfits."
+                    ),
+                    existing_items_to_pair_with=existing,
+                )
+            )
+
+    # Rule 2: categories that exist but lack any neutral-colored item.
+    for cat, count in by_category.items():
+        if count > 0 and neutral_by_category.get(cat, 0) == 0:
+            gaps.append(
+                Gap(
+                    missing_category=cat,
+                    reason=(
+                        f"Your {cat}(s) are all non-neutral — add a neutral "
+                        f"piece to anchor outfits."
+                    ),
+                    existing_items_to_pair_with=list(ids_by_category[cat]),
+                )
+            )
+
+    return gaps
+
+
+# ── Gap → shopping search query (deterministic, optional AI polish) ──
+
+# Opt-in flag: when enabled, the deterministic query is rephrased by the
+# Gemini free-tier text path for a more natural phrasing. OFF by default —
+# the deterministic query already works on its own, no external API needed.
+AI_QUERY_POLISH = os.environ.get("AI_QUERY_POLISH", "false").lower() == "true"
+
+_NEUTRAL_REASON_HINT = "all non-neutral"
+
+
+def _existing_colors(db: Session, item_ids: list[int]) -> list[str]:
+    if not item_ids:
+        return []
+    rows = db.query(ClothingItem).filter(ClothingItem.id.in_(item_ids)).all()
+    return [i.color for i in rows if i.color]
+
+
+def _nearest_named_color(hsl: tuple[float, float, float]) -> str | None:
+    """Map an (H, S, L) triple to the closest named color in HSL_MAP."""
+    h, s, l = hsl
+    best: str | None = None
+    best_d = float("inf")
+    for name, (hh, ss, ll) in HSL_MAP.items():
+        # circular hue distance, weighted saturation/lightness diffs
+        dh = _hue_diff(h, hh) / 180.0
+        ds = abs(s - ss) / 100.0
+        dl = abs(l - ll) / 100.0
+        d = dh * 0.5 + ds * 0.25 + dl * 0.25
+        if d < best_d:
+            best_d = d
+            best = name
+    return best
+
+
+def _pick_color_for_gap(db: Session, gap: Gap) -> str:
+    """Pick a color for the missing item from the user's existing items.
+
+    - If the gap is a "lacks neutral" gap, prefer a neutral family.
+    - Otherwise pick a complementary hue to the user's existing item colors
+      (hue + 180°), mapped back to a named color, falling back to a neutral.
+    """
+    existing = _existing_colors(db, gap.existing_items_to_pair_with)
+    hues = []
+    for c in existing:
+        hsl = _color_to_hsl(c)
+        if hsl is not None:
+            hues.append(hsl)
+
+    neutral_needed = _NEUTRAL_REASON_HINT in gap.reason.lower()
+    neutral_families = ["black", "white", "beige", "grey", "navy", "cream"]
+
+    if neutral_needed:
+        # Choose a neutral the user doesn't already own in this category.
+        owned = {_normalise(c) for c in existing}
+        for nf in neutral_families:
+            if nf not in owned:
+                return nf
+        return "beige"
+
+    if hues:
+        avg_h = sum(h[0] for h in hues) / len(hues)
+        comp_hsl = ((avg_h + 180) % 360, 55.0, 50.0)
+        name = _nearest_named_color(comp_hsl)
+        if name:
+            return name
+
+    # Fallback: a versatile neutral anchor.
+    return "beige"
+
+
+def _build_deterministic_query(
+    gap: Gap, db: Session, target_gender: str | None, occasion_tag: str | None
+) -> str:
+    color = _pick_color_for_gap(db, gap)
+    category = gap.missing_category or "clothing"
+    parts = [color, category]
+    if target_gender:
+        parts.append(_normalise(target_gender))
+    if occasion_tag:
+        parts.append(_normalise(occasion_tag))
+    return " ".join(parts)
+
+
+def _polish_query_with_gemini(query: str) -> str:
+    """Rephrase a deterministic query via the Gemini free-tier text path.
+
+    Strictly optional — only called when AI_QUERY_POLISH is enabled. Returns
+    the original query untouched if the API is unavailable or fails.
+    """
+    try:
+        from app.routers.tagging import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_MODEL
+    except Exception:
+        return query
+
+    if not GEMINI_API_KEY:
+        return query
+
+    api_url = GEMINI_API_URL.replace("{model}", GEMINI_MODEL)
+    prompt = (
+        "Rephrase this product search query into a single concise, natural "
+        f"shopping search string (max 6 words, no punctuation): {query}"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 32},
+    }
+    headers = {
+        "x-goog-api-key": GEMINI_API_KEY,
+        "Content-Type": "application/json",
+    }
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(api_url, json=payload, headers=headers)
+            resp.raise_for_status()
+            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        polished = text.strip().strip('"').strip()
+        return polished or query
+    except Exception as exc:
+        logger.warning("AI_QUERY_POLISH failed, using deterministic query: %s", exc)
+        return query
+
+
+def build_search_query(
+    gap: Gap,
+    db: Session,
+    target_gender: str | None = None,
+    occasion_tag: str | None = None,
+    polish: bool | None = None,
+) -> str:
+    """Build a plain shopping search string from gap data — no AI call.
+
+    Combines a color chosen from the user's existing items (complementary or
+    neutral via the color-harmony module), the missing category, the user's
+    target gender, and the occasion into one query string, e.g.
+    "beige wide leg trousers women casual".
+
+    If ``polish`` (or the AI_QUERY_POLISH env flag) is enabled, the
+    deterministic query is optionally rephrased by Gemini — but the base
+    deterministic query is always produced first and used as the fallback.
+    """
+    query = _build_deterministic_query(gap, db, target_gender, occasion_tag)
+    use_polish = AI_QUERY_POLISH if polish is None else polish
+    if use_polish:
+        return _polish_query_with_gemini(query)
+    return query
+
+
 def _hue_diff(h1: float, h2: float) -> float:
     """Shortest circular distance between two hues (0-180)."""
     d = abs(h1 - h2)
@@ -146,6 +433,77 @@ def _hue_diff(h1: float, h2: float) -> float:
 def _pattern_is_busy(pattern: str | None) -> bool:
     p = _normalise(pattern)
     return p in {"printed", "floral", "striped", "checked", "plaid", "polka dot"}
+
+
+def _fabric_score(fabric1: str | None, fabric2: str | None) -> float:
+    if not fabric1 or not fabric2:
+        return 0.5
+    pair = frozenset({_normalise(fabric1), _normalise(fabric2)})
+    if pair in _FABRIC_AFFINITY:
+        return 0.9
+    if pair in _FABRIC_CLASHES:
+        return 0.2
+    return 0.5
+
+
+def _fit_contrast_score(fit1: str | None, fit2: str | None) -> float:
+    if not fit1 or not fit2:
+        return 0.5
+    key = (_normalise(fit1), _normalise(fit2))
+    return _FIT_CONTRAST.get(key, 0.5)
+
+
+def _season_compatible(season1: str | None, season2: str | None) -> float:
+    s1 = _normalise(season1)
+    s2 = _normalise(season2)
+    if not s1 or not s2:
+        return 0.5
+    if s1 == s2:
+        return 0.9
+    if "all-season" in (s1, s2):
+        return 0.85
+    return 0.3
+
+
+# ── Body-type style-tag scoring ──
+
+
+def _parse_style_tags(raw: str | None) -> list[str]:
+    """Parse a JSON-serialized list of style tags from a Text column."""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(t).strip().lower() for t in parsed if t]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
+
+
+def _body_type_style_score(
+    item: ClothingItem,
+    user_body_type: str | None,
+) -> float:
+    """Score 0–1 reflecting how well an item's style tags match the
+    user's body-type rules from the YAML config.
+
+    Returns 0.5 (neutral) when body type is unknown or the item
+    has no style tags.
+    """
+    if not user_body_type:
+        return 0.5
+
+    tags = _parse_style_tags(getattr(item, "style_tags", None))
+    if not tags:
+        return 0.5
+
+    total_boost = 0.0
+    for tag in tags:
+        total_boost += get_style_boost(user_body_type, tag)
+
+    # Clamp to [0, 1]
+    return min(max(total_boost, 0.0), 1.0)
 
 
 # ── Embedding & hard-rule helpers ──
@@ -190,7 +548,8 @@ def _gender_compatible(item1: ClothingItem, item2: ClothingItem) -> bool:
 def _hard_rule_score(item1: ClothingItem, item2: ClothingItem) -> float:
     """Soft score [0, 1] from occasion and formality matching.
 
-    Only counts a sub-score when *both* items have the field populated.
+    Uses the numeric formality_score (1-5) for a more nuanced comparison
+    than the old string-based formality field.
     Returns 0.5 when neither field is available on both items.
     """
     total = 0.0
@@ -202,10 +561,18 @@ def _hard_rule_score(item1: ClothingItem, item2: ClothingItem) -> float:
         total += 1.0 if o1 == o2 else 0.0
         count += 1
 
-    f1 = _normalise(getattr(item1, "formality", None))
-    f2 = _normalise(getattr(item2, "formality", None))
-    if f1 and f2:
-        total += 1.0 if f1 == f2 else 0.0
+    fs1 = getattr(item1, "formality_score", None)
+    fs2 = getattr(item2, "formality_score", None)
+    if fs1 is not None and fs2 is not None:
+        diff = abs(fs1 - fs2)
+        if diff == 0:
+            total += 1.0
+        elif diff == 1:
+            total += 0.7
+        elif diff == 2:
+            total += 0.3
+        else:
+            total += 0.0
         count += 1
 
     return total / count if count > 0 else 0.5
@@ -248,60 +615,78 @@ def score_pair_color(c1: str | None, c2: str | None) -> float:
     return 0.55
 
 
-def score_pair(item1: ClothingItem, item2: ClothingItem) -> tuple[float, str]:
+def score_pair(
+    item1: ClothingItem, item2: ClothingItem,
+    user_body_type: str | None = None,
+) -> tuple[float, str, dict[str, float]]:
     """Blended compatibility score for a pair of items.
 
-    Combines color harmony, FashionCLIP embedding similarity, and hard-rule
-    matching (occasion, formality, target_gender) using configurable weights.
+    Combines color harmony, embedding similarity, hard-rule matching,
+    fabric affinity, fit contrast, season compatibility, and
+    body-type style-tag alignment.
 
-    When USE_LEARNED_COMPATIBILITY is true and the outfit-transformer model
-    is available, blends in a learned compatibility score with alternate weights.
-
-    Returns (score, reason).  Score is 0.0 when target_gender is incompatible.
+    Returns (score, reason, breakdown).
+    Score is 0.0 when target_gender is incompatible.
     """
     if not _gender_compatible(item1, item2):
-        return 0.0, "target_gender mismatch"
+        return 0.0, "target_gender mismatch", {}
 
     color_score = score_pair_color(item1.color, item2.color)
     embed_score = _embedding_similarity(item1, item2)
     hard_score = _hard_rule_score(item1, item2)
+    fabric_score = _fabric_score(item1.fabric_type, item2.fabric_type)
+    fit_score = _fit_contrast_score(item1.fit_type, item2.fit_type)
+    season_score = _season_compatible(item1.season, item2.season)
+    style_score = (
+        _body_type_style_score(item1, user_body_type)
+        + _body_type_style_score(item2, user_body_type)
+    ) / 2.0
 
-    learned_score = None
-    if USE_LEARNED_COMPATIBILITY and item1.image_url and item2.image_url:
-        from app.learned_compatibility import get_learned_compatibility
-
-        learned_score = get_learned_compatibility([item1.image_url, item2.image_url])
-
-    if learned_score is not None:
-        final = (
-            LEARNED_WEIGHT * learned_score
-            + LEARNED_COLOR_WEIGHT * color_score
-            + LEARNED_EMBEDDING_WEIGHT * embed_score
-            + LEARNED_HARD_RULE_WEIGHT * hard_score
-        )
-    else:
-        final = (
-            COLOR_WEIGHT * color_score
-            + EMBEDDING_WEIGHT * embed_score
-            + HARD_RULE_WEIGHT * hard_score
-        )
+    final = (
+        COLOR_WEIGHT * color_score
+        + EMBEDDING_WEIGHT * embed_score
+        + HARD_RULE_WEIGHT * hard_score
+        + FABRIC_WEIGHT * fabric_score
+        + FIT_WEIGHT * fit_score
+        + SEASON_WEIGHT * season_score
+        + STYLE_TAG_WEIGHT * style_score
+    )
 
     reasons = []
-    if learned_score is not None:
-        reasons.append(f"learned={learned_score:.2f}")
     if color_score >= 0.8:
-        reasons.append("good color harmony")
+        reasons.append("great colors")
     elif color_score <= 0.4:
         reasons.append("clashing colors")
     if embed_score > 0.7:
-        reasons.append("visually similar style")
-    if hard_score >= 0.9:
-        reasons.append("occasion+formality match")
-    elif hard_score <= 0.1:
-        reasons.append("occasion/formality mismatch")
+        reasons.append("matching style")
+    if hard_score >= 0.8:
+        reasons.append("occasion match")
+    if fabric_score >= 0.8:
+        reasons.append("complementary fabrics")
+    elif fabric_score <= 0.3:
+        reasons.append("clashing fabrics")
+    if fit_score >= 0.8:
+        reasons.append("balanced silhouette")
+    elif fit_score <= 0.4:
+        reasons.append("unbalanced fit")
+    if season_score >= 0.8:
+        reasons.append("season match")
+    elif season_score <= 0.4:
+        reasons.append("season mismatch")
+    if style_score >= 0.7:
+        reasons.append("flattering for body type")
 
     reason = "; ".join(reasons) if reasons else "mixed compatibility"
-    return round(final, 3), reason
+    breakdown = {
+        "color": round(color_score, 3),
+        "embedding": round(embed_score, 3),
+        "hard_rules": round(hard_score, 3),
+        "fabric": round(fabric_score, 3),
+        "fit": round(fit_score, 3),
+        "season": round(season_score, 3),
+        "style_tag": round(style_score, 3),
+    }
+    return round(final, 3), reason, breakdown
 
 
 def _outfit_hues(colors: list[str]) -> list[tuple[float, float, float]]:
@@ -329,20 +714,28 @@ def _is_analogous(hues: list[tuple[float, float, float]]) -> str | None:
     return None
 
 
-def score_outfit(items: list[ClothingItem]) -> tuple[float, str]:
-    """Score an outfit (list of 2-3 items) and return (score, reason)."""
+def score_outfit(
+    items: list[ClothingItem],
+    user_body_type: str | None = None,
+) -> tuple[float, str, dict[str, float]]:
+    """Score an outfit (list of 2-3 items) and return (score, reason, breakdown)."""
     if not items:
-        return 0.0, "Empty outfit"
+        return 0.0, "Empty outfit", {}
 
     colors = [i.color for i in items]
     patterns = [i.pattern for i in items]
 
-    # Base score from blended pair scoring
+    # Aggregate breakdown across all pairs
     pair_scores = []
+    breakdown_sums: dict[str, float] = {}
+    pair_count = 0
     for i in range(len(items)):
         for j in range(i + 1, len(items)):
-            ps, _ = score_pair(items[i], items[j])
+            ps, _, bd = score_pair(items[i], items[j], user_body_type)
             pair_scores.append(ps)
+            for k, v in bd.items():
+                breakdown_sums[k] = breakdown_sums.get(k, 0.0) + v
+            pair_count += 1
 
     base = sum(pair_scores) / len(pair_scores) if pair_scores else 0.5
 
@@ -370,6 +763,9 @@ def score_outfit(items: list[ClothingItem]) -> tuple[float, str]:
 
     final = min(base + comp_bonus + analogous_bonus, 1.0)
 
+    # Average breakdown
+    avg_breakdown = {k: round(v / pair_count, 3) for k, v in breakdown_sums.items()} if pair_count else {}
+
     # Build reason
     reasons = []
     if comp_reason:
@@ -386,7 +782,49 @@ def score_outfit(items: list[ClothingItem]) -> tuple[float, str]:
         reasons.append("all-neutral palette")
 
     reason = "; ".join(reasons) if reasons else "solid color pairing"
-    return round(final, 3), reason
+    return round(final, 3), reason, avg_breakdown
+
+
+# ── Body-type outfit-level boost (Step 2.3) ──
+
+
+def _outfit_body_type_boost(
+    items: list[ClothingItem],
+    user_body_type: str | None,
+) -> tuple[float, list[str]]:
+    """Sum matching style-tag boosts for an outfit, capped at +0.2."""
+    if not user_body_type:
+        return 0.0, []
+
+    bt = user_body_type.strip().lower()
+    rules = _BODY_TYPE_RULES.model_dump().get(bt, [])
+    tag_boosts = {r["tag"]: r["boost"] for r in rules}
+
+    total = 0.0
+    fired = []
+    for item in items:
+        tags = _parse_style_tags(getattr(item, "style_tags", None))
+        for tag in tags:
+            if tag in tag_boosts:
+                total += tag_boosts[tag]
+                fired.append(f"{bt}:{tag}+{tag_boosts[tag]}")
+
+    return min(total, 0.2), fired
+
+
+def _apply_body_type_boost(
+    score: float,
+    combo: list[ClothingItem],
+    user_body_type: str | None,
+) -> float:
+    body_boost, fired = _outfit_body_type_boost(combo, user_body_type)
+    if fired:
+        logger.debug(
+            "Body-type rules fired for outfit %s: %s",
+            [i.id for i in combo],
+            fired,
+        )
+    return min(score + body_boost, 1.0)
 
 
 # ── Main suggestion function ──
@@ -396,6 +834,24 @@ class OutfitSuggestion:
     items: list[dict]
     score: float
     reason: str
+    breakdown: dict[str, float] = None
+
+    def __post_init__(self):
+        if self.breakdown is None:
+            self.breakdown = {}
+
+
+def _recommender_ml_weight(feedback_count: int) -> float:
+    """Adaptive LightFM blend weight.
+
+    Returns 0.0 for users with fewer than 10 feedback entries (rely entirely
+    on the rule-based + FashionCLIP scoring), then ramps linearly up to a cap
+    of 0.30 as more feedback is collected.
+    """
+    if feedback_count < 10:
+        return 0.0
+    ramp = (feedback_count - 10) / 30.0  # full weight reached at 40 entries
+    return min(0.30, max(0.0, 0.30 * ramp))
 
 
 def suggest_outfits(
@@ -405,7 +861,32 @@ def suggest_outfits(
     target_gender: str | None = None,
     limit: int = 5,
 ) -> list[OutfitSuggestion]:
-    """Load user's items and return top outfit combinations."""
+    """Load user's items and return top outfit combinations.
+
+    The final score blends the existing rule-based + FashionCLIP score with a
+    learned LightFM recommendation score. The learned weight starts at 0% for
+    users with fewer than 10 feedback entries and ramps linearly up to a cap of
+    30% as more feedback accumulates. If the model file is missing or fails to
+    load, scoring falls back entirely to the rule-based result.
+    """
+    from app.models import OutfitFeedback, User
+
+    user = db.query(User).filter(User.id == user_id).first()
+    user_body_type: str | None = getattr(user, "body_type", None) if user else None
+
+    feedback_count = (
+        db.query(OutfitFeedback).filter(OutfitFeedback.user_id == user_id).count()
+    )
+    ml_weight = _recommender_ml_weight(feedback_count)
+    ml_available = False
+    if ml_weight > 0.0:
+        try:
+            from app.recommender import get_recommendation_score
+
+            ml_available = True
+        except Exception:  # pragma: no cover - defensive
+            ml_available = False
+
     query = db.query(ClothingItem).filter(ClothingItem.user_id == user_id)
     if occasion_tag:
         query = query.filter(ClothingItem.occasion_tag == occasion_tag)
@@ -426,21 +907,39 @@ def suggest_outfits(
     outerwear = by_category.get("outerwear", [])
     accessories = by_category.get("accessory", [])
 
-    candidates = []
+    candidates: list[tuple[float, str, dict[str, float], list[ClothingItem]]] = []
+
+    def _add_candidate(combo, base_score, reason, bd):
+        final_score = base_score
+        if ml_available:
+            try:
+                ml_score = get_recommendation_score(
+                    user_id, [i.id for i in combo]
+                )
+                final_score = (1.0 - ml_weight) * base_score + ml_weight * ml_score
+                bd = dict(bd)
+                bd["recommender_ml"] = round(ml_score, 3)
+                bd["ml_weight"] = round(ml_weight, 3)
+            except Exception:
+                # Fall back to rule-based-only scoring.
+                pass
+        candidates.append((final_score, reason, bd, combo))
 
     # Dresses are single-piece: pair with footwear + optional accessory
     for dress in dresses:
         for shoe in footwear or [None]:
             combo = [dress] + ([shoe] if shoe else [])
-            score, reason = score_outfit(combo)
-            candidates.append((score, reason, combo))
+            score, reason, bd = score_outfit(combo, user_body_type)
+            score = _apply_body_type_boost(score, combo, user_body_type)
+            _add_candidate(combo, score, reason, bd)
 
         # Dress + shoes + accessory
         for shoe in footwear or [None]:
             for acc in accessories:
                 combo = [dress] + ([shoe] if shoe else []) + [acc]
-                s, r = score_outfit(combo)
-                candidates.append((s, r, combo))
+                s, r, bd = score_outfit(combo, user_body_type)
+                s = _apply_body_type_boost(s, combo, user_body_type)
+                _add_candidate(combo, s, r, bd)
 
     # Top + bottom combinations
     for top in tops:
@@ -448,39 +947,55 @@ def suggest_outfits(
             # With footwear
             for shoe in footwear or [None]:
                 combo = [top, bottom] + ([shoe] if shoe else [])
-                score, reason = score_outfit(combo)
-                candidates.append((score, reason, combo))
+                score, reason, bd = score_outfit(combo, user_body_type)
+                score = _apply_body_type_boost(score, combo, user_body_type)
+                _add_candidate(combo, score, reason, bd)
 
                 # With outerwear
                 for coat in outerwear:
                     full = [top, bottom, coat] + ([shoe] if shoe else [])
-                    s, r = score_outfit(full)
-                    candidates.append((s, r, full))
+                    s, r, bd = score_outfit(full, user_body_type)
+                    s = _apply_body_type_boost(s, full, user_body_type)
+                    _add_candidate(full, s, r, bd)
 
                 # With accessory
                 for acc in accessories:
                     full = [top, bottom] + ([shoe] if shoe else []) + [acc]
-                    s, r = score_outfit(full)
-                    candidates.append((s, r, full))
+                    s, r, bd = score_outfit(full, user_body_type)
+                    s = _apply_body_type_boost(s, full, user_body_type)
+                    _add_candidate(full, s, r, bd)
 
     # If no tops/bottoms but have outerwear on its own, skip
     # Fallback: only footwear
     if not candidates and footwear:
         for shoe in footwear:
-            score, reason = score_outfit([shoe])
-            candidates.append((score, reason, [shoe]))
+            score, reason, bd = score_outfit([shoe], user_body_type)
+            score = _apply_body_type_boost(score, [shoe], user_body_type)
+            _add_candidate([shoe], score, reason, bd)
 
     # Sort by score descending
     candidates.sort(key=lambda x: x[0], reverse=True)
 
-    # Deduplicate by item IDs
+    # Deduplicate by item IDs, with diversity: prefer varied color palettes
     seen = set()
-    results = []
-    for score, reason, combo in candidates:
+    seen_colors: list[str] = []
+    results: list[OutfitSuggestion] = []
+    bucket_size = max(limit * 2, 10)
+
+    for score, reason, bd, combo in candidates[:bucket_size]:
         key = tuple(sorted(i.id for i in combo))
         if key in seen:
             continue
         seen.add(key)
+
+        # Diversity: penalise combos whose dominant color we already show too much
+        combo_colors = [i.color for i in combo if i.color]
+        dominant = combo_colors[0] if combo_colors else ""
+        dup_count = sum(1 for c in seen_colors if c == dominant)
+        if dup_count >= 2:
+            continue
+
+        seen_colors.append(dominant)
         results.append(
             OutfitSuggestion(
                 items=[
@@ -490,6 +1005,9 @@ def suggest_outfits(
                         "category": i.category,
                         "color": i.color,
                         "pattern": i.pattern,
+                        "fabric_type": i.fabric_type,
+                        "fit_type": i.fit_type,
+                        "sleeve_length": i.sleeve_length,
                         "image_url": i.image_url,
                         "target_gender": i.target_gender,
                     }
@@ -497,6 +1015,7 @@ def suggest_outfits(
                 ],
                 score=score,
                 reason=reason,
+                breakdown=bd,
             )
         )
         if len(results) >= limit:

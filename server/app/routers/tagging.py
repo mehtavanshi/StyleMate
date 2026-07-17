@@ -54,6 +54,12 @@ CANDIDATE_LABELS = {
     "sleeve_length": ["sleeveless", "short", "three_quarter", "long", "not_applicable"],
 }
 
+STYLE_TAG_CANDIDATES: list[str] = [
+    "belted", "wrap_style", "structured", "flowy", "cropped",
+    "high_waisted", "fitted", "a_line", "v_neck", "empire_waist",
+    "wide_leg", "asymmetric", "peplum", "ruffled", "scoop_neck",
+]
+
 FORMALITY_MAP = {
     "loungewear": 1,
     "casual": 2,
@@ -270,6 +276,21 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
         confidence["target_gender"] = 0.0
         needs_review["target_gender"] = True
         failures.append("target_gender")
+
+    # Multi-label style-tag classification (belted, wrap_style, etc.)
+    try:
+        from app.style_embeddings import zero_shot_classify_multi
+
+        matched_tags = zero_shot_classify_multi(image_url, STYLE_TAG_CANDIDATES)
+        tags["style_tags"] = matched_tags
+        confidence["style_tags"] = 1.0
+        needs_review["style_tags"] = False
+        logger.info("FashionCLIP style_tags: %s", matched_tags)
+    except Exception as exc:
+        logger.warning("FashionCLIP style_tags failed: %s", exc)
+        tags["style_tags"] = []
+        confidence["style_tags"] = 0.0
+        needs_review["style_tags"] = True
 
     # Derive formality_score from occasion_tag (deterministic, always confident).
     occasion = tags.get("occasion_tag")

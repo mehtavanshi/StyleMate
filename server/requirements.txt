@@ -4,9 +4,17 @@ sqlalchemy
 pydantic
 python-multipart
 httpx
+cachetools
+tenacity
 python-dotenv
 transformers
 torch
 Pillow
 numpy
 gdown
+python-dateutil
+pyyaml
+lightfm
+implicit
+scipy
+scikit-learn

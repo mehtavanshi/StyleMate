@@ -199,6 +199,46 @@ def zero_shot_classify(
     return candidate_labels[best_idx], sims[best_idx]
 
 
+STYLE_TAG_THRESHOLD: float = 0.12
+
+
+def zero_shot_classify_multi(
+    image_path_or_url: str,
+    candidate_labels: list[str],
+    threshold: float = STYLE_TAG_THRESHOLD,
+) -> list[str]:
+    """Multi-label zero-shot classification using FashionCLIP.
+
+    Unlike ``zero_shot_classify`` which returns only the single best label,
+    this function returns **all** labels whose cosine similarity exceeds
+    ``threshold``.  Useful for style-tag detection where a garment can
+    have multiple attributes (e.g. both ``belted`` and ``structured``).
+
+    Args:
+        image_path_or_url: Local path or HTTP(S) URL to the image.
+        candidate_labels: Style-tag labels to evaluate.
+        threshold: Minimum similarity to keep a label (default 0.12).
+
+    Returns:
+        List of matching labels (may be empty).
+    """
+    import torch
+
+    image_emb = get_embedding(image_path_or_url)
+    image_vec = torch.tensor(image_emb, dtype=torch.float32)
+
+    matches: list[str] = []
+    for label in candidate_labels:
+        text_vec = torch.tensor(
+            get_ensembled_label_embedding(label), dtype=torch.float32
+        )
+        sim = float(torch.dot(image_vec, text_vec).item())
+        if sim >= threshold:
+            matches.append(label)
+
+    return matches
+
+
 GENDER_PHRASES = [
     "a piece of men's clothing",
     "a piece of women's clothing",

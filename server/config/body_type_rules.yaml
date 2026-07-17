@@ -1,0 +1,44 @@
+# ── Body-type → favored style-tag rules ──
+# Each body_type maps to a list of {tag, boost} pairs.
+# Tags correspond to zero-shot labels from FashionCLIP tagging.
+# Boost values (0.0–1.0) are additive factors in outfit scoring.
+
+rectangle:
+  - tag: "belted"
+    boost: 0.15
+  - tag: "wrap_style"
+    boost: 0.15
+  - tag: "structured"
+    boost: 0.10
+
+hourglass:
+  - tag: "belted"
+    boost: 0.15
+  - tag: "wrap_style"
+    boost: 0.15
+  - tag: "fitted"
+    boost: 0.10
+
+pear:
+  - tag: "a_line"
+    boost: 0.15
+  - tag: "high_waisted"
+    boost: 0.15
+  - tag: "flowy"
+    boost: 0.10
+
+apple:
+  - tag: "empire_waist"
+    boost: 0.15
+  - tag: "v_neck"
+    boost: 0.15
+  - tag: "flowy"
+    boost: 0.10
+
+inverted_triangle:
+  - tag: "v_neck"
+    boost: 0.15
+  - tag: "flowy"
+    boost: 0.10
+  - tag: "wide_leg"
+    boost: 0.10

@@ -8,14 +8,17 @@ from sqlalchemy.orm import Session
 
 from app.database import Base, SessionLocal, engine, get_db
 from app import models  # noqa: F401
+from app.config import load_body_type_rules
 from app.models import ClothingItem
-from app.routers import users, clothing, upload, tagging, outfits
+from app.routers import users, clothing, upload, tagging, outfits, calendar, shopping, style_match
 from app.schemas import ClothingItemCreate, ClothingItemResponse
 from app.style_embeddings import compute_and_store_embedding
 
 UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
 
 Base.metadata.create_all(bind=engine)
+
+load_body_type_rules()
 
 app = FastAPI(title="StyleMate API")
 
@@ -32,6 +35,9 @@ app.include_router(clothing.router)
 app.include_router(upload.router)
 app.include_router(tagging.router)
 app.include_router(outfits.router)
+app.include_router(calendar.router)
+app.include_router(shopping.router)
+app.include_router(style_match.router)
 
 
 @app.get("/health")

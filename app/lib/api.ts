@@ -27,7 +27,9 @@ export interface User {
   name: string;
   email: string;
   gender: string | null;
+  target_gender: string | null;
   style_preference: string | null;
+  body_type: string | null;
   created_at: string;
 }
 
@@ -72,6 +74,11 @@ export const clothingApi = {
 
 export const usersApi = {
   get: (id: number) => apiFetch<User>(`/users/${id}`),
+  setBodyType: (id: number, bodyType: string) =>
+    apiFetch<User>(`/users/${id}/body-type`, {
+      method: "POST",
+      body: JSON.stringify({ body_type: bodyType }),
+    }),
 };
 
 export interface TagResult {
@@ -94,6 +101,9 @@ export interface OutfitItem {
   category: string;
   color: string | null;
   pattern: string | null;
+  fabric_type: string | null;
+  fit_type: string | null;
+  sleeve_length: string | null;
   image_url: string | null;
   target_gender: string | null;
 }
@@ -102,6 +112,7 @@ export interface OutfitSuggestion {
   items: OutfitItem[];
   score: number;
   reason: string;
+  breakdown: Record<string, number>;
 }
 
 export const outfitApi = {
@@ -113,6 +124,126 @@ export const outfitApi = {
     if (params?.limit) query.set("limit", String(params.limit));
     return apiFetch<OutfitSuggestion[]>(`/outfit-suggestions?${query.toString()}`);
   },
+};
+
+export interface OutfitFeedback {
+  id: number;
+  user_id: number;
+  outfit_item_ids: number[];
+  liked: boolean;
+  created_at: string;
+}
+
+export const feedbackApi = {
+  create: (outfitItemIds: number[], liked: boolean) =>
+    apiFetch<OutfitFeedback>("/outfit-feedback", {
+      method: "POST",
+      body: JSON.stringify({ user_id: DEMO_USER_ID, outfit_item_ids: outfitItemIds, liked }),
+    }),
+};
+
+export interface ShoppingProduct {
+  name: string;
+  image_url: string;
+  price: number;
+  currency: string;
+  affiliate_link: string;
+  source: string;
+}
+
+export interface ShoppingGroup {
+  gap_reason: string;
+  missing_category: string;
+  search_query: string;
+  products: ShoppingProduct[];
+}
+
+export const shoppingApi = {
+  suggest: (params?: { target_gender?: string; occasion_tag?: string }) => {
+    const query = new URLSearchParams();
+    query.set("user_id", String(DEMO_USER_ID));
+    if (params?.target_gender) query.set("target_gender", params.target_gender);
+    if (params?.occasion_tag) query.set("occasion_tag", params.occasion_tag);
+    return apiFetch<ShoppingGroup[]>(`/shopping-suggestions?${query.toString()}`);
+  },
+};
+
+export interface StyleMatchItem {
+  name: string;
+  match_percentage: number;
+  reason: string;
+  owned: boolean;
+  item_id: number | null;
+  category: string | null;
+  color: string | null;
+  image_url: string | null;
+}
+
+export interface ShoppingLink {
+  store: string;
+  url: string;
+}
+
+export interface ShoppingSuggestion {
+  category: string;
+  item_name: string;
+  match_percentage: number;
+  reason: string;
+  owned: boolean;
+  shopping_links: ShoppingLink[];
+}
+
+export interface OccasionOutfit {
+  name: string;
+  based_on: string;
+}
+
+export interface StyleMatchResponse {
+  selectedItem: Record<string, any>;
+  matchingBottoms: StyleMatchItem[];
+  matchingTops: StyleMatchItem[];
+  matchingFootwear: StyleMatchItem[];
+  matchingAccessories: StyleMatchItem[];
+  layeringSuggestions: StyleMatchItem[];
+  recommendedColors: string[];
+  avoidColors: string[];
+  occasionOutfits: OccasionOutfit[];
+  shoppingSuggestions: ShoppingSuggestion[];
+  alreadyOwned: StyleMatchItem[];
+}
+
+export const styleMatchApi = {
+  get: (itemId: number) =>
+    apiFetch<StyleMatchResponse>(`/style-match?item_id=${itemId}`),
+};
+
+export interface CalendarEntry {
+  id: number;
+  user_id: number;
+  date: string;
+  occasion_tag: string | null;
+  locked_outfit_id: number | null;
+  created_at: string;
+}
+
+export const calendarApi = {
+  list: (params?: { start_date?: string; end_date?: string }) => {
+    const query = new URLSearchParams();
+    query.set("user_id", String(DEMO_USER_ID));
+    if (params?.start_date) query.set("start_date", params.start_date);
+    if (params?.end_date) query.set("end_date", params.end_date);
+    return apiFetch<CalendarEntry[]>(`/calendar-entries/?${query.toString()}`);
+  },
+  create: (entry: { date: string; occasion_tag?: string }) =>
+    apiFetch<CalendarEntry>("/calendar-entries/", {
+      method: "POST",
+      body: JSON.stringify({ ...entry, user_id: DEMO_USER_ID }),
+    }),
+  update: (id: number, updates: { occasion_tag?: string; locked_outfit_id?: number | null }) =>
+    apiFetch<CalendarEntry>(`/calendar-entries/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    }),
 };
 
 export const uploadApi = {

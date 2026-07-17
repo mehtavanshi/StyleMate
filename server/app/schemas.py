@@ -1,7 +1,9 @@
-from datetime import datetime
-from typing import Optional
+from datetime import date, datetime
+from typing import Literal, Optional
 
 from pydantic import BaseModel
+
+from app.config import VALID_BODY_TYPES
 
 
 # ── User ──
@@ -12,6 +14,7 @@ class UserBase(BaseModel):
     gender: Optional[str] = None
     target_gender: Optional[str] = None
     style_preference: Optional[str] = None
+    body_type: Optional[str] = None
 
 
 class UserCreate(UserBase):
@@ -23,6 +26,21 @@ class UserResponse(UserBase):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Body type ──
+
+BodyType = Literal[
+    "rectangle",
+    "hourglass",
+    "pear",
+    "apple",
+    "inverted_triangle",
+]
+
+
+class BodyTypeIn(BaseModel):
+    body_type: BodyType
 
 
 # ── ClothingItem ──
@@ -39,6 +57,7 @@ class ClothingItemBase(BaseModel):
     formality: Optional[str] = None
     target_gender: Optional[str] = "unisex"
     tags: Optional[str] = None
+    style_tags: Optional[str] = None
 
 
 class ClothingItemCreate(ClothingItemBase):
@@ -61,6 +80,7 @@ class ClothingItemUpdate(BaseModel):
     sleeve_length: Optional[str] = None
     formality_score: Optional[int] = None
     tags: Optional[str] = None
+    style_tags: Optional[str] = None
 
 
 class ClothingItemResponse(ClothingItemBase):
@@ -68,5 +88,46 @@ class ClothingItemResponse(ClothingItemBase):
     user_id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ── CalendarEntry ──
+
+class CalendarEntryBase(BaseModel):
+    date: date
+    occasion_tag: Optional[str] = None
+    locked_outfit_id: Optional[int] = None
+
+
+class CalendarEntryCreate(CalendarEntryBase):
+    user_id: int
+
+
+class CalendarEntryUpdate(BaseModel):
+    date: Optional[date] = None
+    occasion_tag: Optional[str] = None
+    locked_outfit_id: Optional[int] = None
+
+
+class CalendarEntryResponse(CalendarEntryBase):
+    id: int
+    user_id: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ── OutfitFeedback ──
+
+class OutfitFeedbackIn(BaseModel):
+    user_id: int
+    outfit_item_ids: list[int]
+    liked: bool
+
+
+class OutfitFeedbackResponse(OutfitFeedbackIn):
+    id: int
+    created_at: datetime
 
     model_config = {"from_attributes": True}

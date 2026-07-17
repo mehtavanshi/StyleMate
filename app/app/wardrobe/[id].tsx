@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { clothingApi, ClothingItem } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
 
@@ -23,8 +23,13 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const navigation = useNavigation();
   const [item, setItem] = useState<ClothingItem | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    navigation.setOptions({ title: "Item Details", headerShown: true });
+  }, [navigation]);
 
   useEffect(() => {
     const load = async () => {
@@ -104,6 +109,13 @@ export default function ItemDetailScreen() {
         <TagRow label="Formality" value={item.formality} />
       </View>
 
+      <TouchableOpacity
+        style={styles.styleMatchButton}
+        onPress={() => router.push(`/style-match?id=${item.id}`)}
+      >
+        <Text style={styles.styleMatchButtonText}>✨ Style Match Suggestions</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
         <Text style={styles.deleteButtonText}>Delete from Wardrobe</Text>
       </TouchableOpacity>
@@ -138,9 +150,18 @@ const styles = StyleSheet.create({
   tagLabel: { fontSize: 14, color: "#999", textTransform: "capitalize" },
   tagValue: { fontSize: 14, fontWeight: "600", color: "#333", textTransform: "capitalize" },
 
-  deleteButton: {
+  styleMatchButton: {
     marginHorizontal: 16,
     marginTop: 24,
+    backgroundColor: "#333",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+  },
+  styleMatchButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  deleteButton: {
+    marginHorizontal: 16,
+    marginTop: 12,
     backgroundColor: "#fff",
     borderWidth: 1.5,
     borderColor: "#E74C3C",
