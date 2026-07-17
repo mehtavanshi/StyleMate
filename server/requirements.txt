@@ -5,3 +5,8 @@ pydantic
 python-multipart
 httpx
 python-dotenv
+transformers
+torch
+Pillow
+numpy
+gdown

@@ -12,6 +12,10 @@ export interface ClothingItem {
   occasion_tag: string | null;
   formality: string | null;
   target_gender: string | null;
+  fabric_type: string | null;
+  fit_type: string | null;
+  sleeve_length: string | null;
+  formality_score: number | null;
   image_url: string | null;
   tags: string | null;
   created_at: string;
@@ -71,12 +75,17 @@ export const usersApi = {
 };
 
 export interface TagResult {
-  category: string;
-  dominant_color: string;
-  pattern: string;
-  occasion_tag: string;
-  season: string;
-  _error?: string;
+  category: string | null;
+  dominant_color: string | null;
+  pattern: string | null;
+  occasion_tag: string | null;
+  season: string | null;
+  fabric_type: string | null;
+  fit_type: string | null;
+  sleeve_length: string | null;
+  formality_score: number | null;
+  _confidence: Record<string, number>;
+  _needs_review: Record<string, boolean>;
 }
 
 export interface OutfitItem {

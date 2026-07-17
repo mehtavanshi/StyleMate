@@ -1,5 +1,6 @@
 import { useCallback, useState, useMemo } from "react";
 import {
+  Alert,
   FlatList,
   Image,
   StyleSheet,
@@ -35,7 +36,8 @@ export default function WardrobeScreen() {
     try {
       const data = await clothingApi.list();
       setItems(data);
-    } catch {
+    } catch (e: any) {
+      Alert.alert("Error", e.message || "Failed to load wardrobe.");
     } finally {
       setLoading(false);
     }

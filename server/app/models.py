@@ -34,7 +34,12 @@ class ClothingItem(Base):
     name = Column(String, nullable=True)
     formality = Column(String, nullable=True)
     target_gender = Column(String, nullable=True, default="unisex")
+    fabric_type = Column(String, nullable=True)
+    fit_type = Column(String, nullable=True)
+    sleeve_length = Column(String, nullable=True)
+    formality_score = Column(Integer, nullable=True)
     tags = Column(Text, nullable=True)
+    embedding_json = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -19,6 +19,9 @@ const CATEGORIES = ["top", "bottom", "dress", "outerwear", "footwear", "accessor
 const PATTERNS = ["solid", "striped", "printed", "checked", "other"];
 const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"];
 const TARGET_GENDERS = ["unisex", "men", "women"];
+const FABRIC_TYPES = ["cotton", "denim", "silk", "wool", "leather", "linen", "knit", "synthetic"];
+const FIT_TYPES = ["slim", "regular", "oversized", "loose"];
+const SLEEVE_LENGTHS = ["sleeveless", "short", "three_quarter", "long", "not_applicable"];
 
 export default function AddItemScreen() {
   const [step, setStep] = useState<"pick" | "loading" | "form" | "error">("pick");
@@ -35,7 +38,13 @@ export default function AddItemScreen() {
   const [occasion, setOccasion] = useState("");
   const [season, setSeason] = useState("");
   const [targetGender, setTargetGender] = useState("unisex");
+  const [fabricType, setFabricType] = useState("");
+  const [fitType, setFitType] = useState("");
+  const [sleeveLength, setSleeveLength] = useState("");
+  const [formalityScore, setFormalityScore] = useState(0);
+  const [showMore, setShowMore] = useState(false);
 
+  const [needsReview, setNeedsReview] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
 
   // ── Image picker ──
@@ -84,12 +93,6 @@ export default function AddItemScreen() {
       const tags = await uploadApi.tagItem(image_url);
       applyTags(tags);
       setStep("form");
-      if (tags._error) {
-        Alert.alert(
-          "AI Analysis Unavailable",
-          "Auto-tagging failed. You can fill in the fields manually.\n\n" + tags._error
-        );
-      }
     } catch (e: any) {
       setErrorMsg(e.message || "Failed to analyze image");
       setStep("error");
@@ -97,11 +100,17 @@ export default function AddItemScreen() {
   };
 
   const applyTags = (tags: TagResult) => {
-    setCategory(tags.category);
-    setColor(tags.dominant_color);
-    setPattern(tags.pattern);
-    setOccasion(tags.occasion_tag);
-    setSeason(tags.season);
+    const review = tags._needs_review || {};
+    setNeedsReview(review);
+    if (!review.category) setCategory(tags.category ?? "");
+    if (!review.dominant_color) setColor(tags.dominant_color ?? "");
+    if (!review.pattern) setPattern(tags.pattern ?? "");
+    if (!review.occasion_tag) setOccasion(tags.occasion_tag ?? "");
+    if (!review.season) setSeason(tags.season ?? "");
+    if (!review.fabric_type) setFabricType(tags.fabric_type ?? "");
+    if (!review.fit_type) setFitType(tags.fit_type ?? "");
+    if (!review.sleeve_length) setSleeveLength(tags.sleeve_length ?? "");
+    if (tags.formality_score != null) setFormalityScore(tags.formality_score);
   };
 
   // ── Save ──
@@ -122,6 +131,10 @@ export default function AddItemScreen() {
         occasion_tag: occasion || null,
         season: season.trim() || null,
         target_gender: targetGender,
+        fabric_type: fabricType || null,
+        fit_type: fitType || null,
+        sleeve_length: sleeveLength || null,
+        formality_score: formalityScore || null,
       });
       resetForm();
       router.replace("/wardrobe");
@@ -143,6 +156,12 @@ export default function AddItemScreen() {
     setOccasion("");
     setSeason("");
     setTargetGender("unisex");
+    setFabricType("");
+    setFitType("");
+    setSleeveLength("");
+    setFormalityScore(0);
+    setShowMore(false);
+    setNeedsReview({});
   };
 
   // ── Renderers ──
@@ -150,9 +169,10 @@ export default function AddItemScreen() {
   const renderChips = (
     options: string[],
     value: string,
-    onSelect: (v: string) => void
+    onSelect: (v: string) => void,
+    highlightReview = false,
   ) => (
-    <View style={styles.chipRow}>
+    <View style={[styles.chipRow, highlightReview && styles.chipRowReview]}>
       {options.map((o) => (
         <TouchableOpacity
           key={o}
@@ -220,8 +240,8 @@ export default function AddItemScreen() {
           {imageUri && (
             <Image source={{ uri: imageUri }} style={styles.previewImage} />
           )}
-          <Text style={styles.errorTitle}>Analysis Failed</Text>
-          <Text style={styles.errorDetail}>{errorMsg}</Text>
+          <Text style={styles.errorTitle}>Tagging Failed</Text>
+          <Text style={styles.errorDetail}>{errorMsg || "Tagging failed. Please retry or enter tags manually."}</Text>
           <TouchableOpacity
             style={styles.retryButton}
             onPress={() => {
@@ -251,32 +271,70 @@ export default function AddItemScreen() {
       />
 
       <Text style={styles.label}>Category</Text>
-      {renderChips(CATEGORIES, category, setCategory)}
+      {renderChips(CATEGORIES, category, setCategory, needsReview.category)}
 
       <Text style={styles.label}>Color</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, needsReview.dominant_color && styles.inputReview]}
         value={color}
         onChangeText={setColor}
         placeholder="e.g. navy blue"
       />
 
       <Text style={styles.label}>Pattern</Text>
-      {renderChips(PATTERNS, pattern, setPattern)}
+      {renderChips(PATTERNS, pattern, setPattern, needsReview.pattern)}
 
       <Text style={styles.label}>Occasion</Text>
-      {renderChips(OCCASIONS, occasion, setOccasion)}
+      {renderChips(OCCASIONS, occasion, setOccasion, needsReview.occasion_tag)}
 
       <Text style={styles.label}>Season</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, needsReview.season && styles.inputReview]}
         value={season}
         onChangeText={setSeason}
         placeholder="e.g. winter, all-season"
       />
 
       <Text style={styles.label}>Target Gender</Text>
-      {renderChips(TARGET_GENDERS, targetGender, setTargetGender)}
+      {renderChips(TARGET_GENDERS, targetGender, setTargetGender, needsReview.target_gender)}
+
+      <TouchableOpacity
+        style={styles.moreToggle}
+        onPress={() => setShowMore(!showMore)}
+      >
+        <Text style={styles.moreToggleText}>
+          {showMore ? "Less details" : "More details"}
+        </Text>
+        <Text style={styles.moreToggleChevron}>{showMore ? "\u25B2" : "\u25BC"}</Text>
+      </TouchableOpacity>
+
+      {showMore && (
+        <View style={styles.moreSection}>
+          <Text style={styles.label}>Fabric Type</Text>
+          {renderChips(FABRIC_TYPES, fabricType, setFabricType, needsReview.fabric_type)}
+
+          <Text style={styles.label}>Fit Type</Text>
+          {renderChips(FIT_TYPES, fitType, setFitType, needsReview.fit_type)}
+
+          <Text style={styles.label}>Sleeve Length</Text>
+          {renderChips(SLEEVE_LENGTHS, sleeveLength, setSleeveLength, needsReview.sleeve_length)}
+
+          <Text style={styles.label}>Formality (1\u20135)</Text>
+          <View style={styles.chipRow}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <TouchableOpacity
+                key={n}
+                style={[styles.chip, formalityScore === n && styles.chipActive]}
+                onPress={() => setFormalityScore(n)}
+              >
+                <Text style={[styles.chipText, formalityScore === n && styles.chipTextActive]}>
+                  {n}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
 
       <View style={styles.formActions}>
         <TouchableOpacity
@@ -342,12 +400,40 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e0e0e0",
   },
+  inputReview: {
+    borderColor: "#e8b830",
+    borderWidth: 2,
+    backgroundColor: "#fffef5",
+  },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chipRowReview: {
+    borderWidth: 2,
+    borderColor: "#e8b830",
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    backgroundColor: "#fffef5",
+  },
   chip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "#e0e0e0" },
   chipActive: { backgroundColor: "#333" },
   chipText: { fontSize: 14, color: "#555", textTransform: "capitalize" },
   chipTextActive: { color: "#fff" },
   formActions: { marginTop: 30, gap: 12 },
+  moreToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 20,
+    paddingVertical: 10,
+  },
+  moreToggleText: { fontSize: 15, fontWeight: "600", color: "#555", marginRight: 6 },
+  moreToggleChevron: { fontSize: 12, color: "#555" },
+  moreSection: {
+    marginTop: 4,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e0e0e0",
+  },
   saveButton: { backgroundColor: "#333", borderRadius: 12, padding: 16, alignItems: "center" },
   saveButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   cancelButton: { alignItems: "center", padding: 12 },

@@ -1,9 +1,12 @@
+from threading import Thread
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import ClothingItem
 from app.schemas import ClothingItemCreate, ClothingItemUpdate, ClothingItemResponse
+from app.style_embeddings import compute_and_store_embedding
 
 router = APIRouter(prefix="/clothing", tags=["clothing"])
 
@@ -37,6 +40,16 @@ def create_item(item: ClothingItemCreate, db: Session = Depends(get_db)):
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
+
+    def _bg_compute():
+        session = SessionLocal()
+        try:
+            compute_and_store_embedding(db_item.id, session)
+        finally:
+            session.close()
+
+    Thread(target=_bg_compute, daemon=True).start()
+
     return db_item
 
 

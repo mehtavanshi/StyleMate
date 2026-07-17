@@ -1,15 +1,17 @@
 from pathlib import Path
+from threading import Thread
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from app.database import Base, engine, get_db
+from app.database import Base, SessionLocal, engine, get_db
 from app import models  # noqa: F401
 from app.models import ClothingItem
 from app.routers import users, clothing, upload, tagging, outfits
 from app.schemas import ClothingItemCreate, ClothingItemResponse
+from app.style_embeddings import compute_and_store_embedding
 
 UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
 
@@ -43,6 +45,16 @@ def create_clothing_item(item: ClothingItemCreate, db: Session = Depends(get_db)
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
+
+    def _bg_compute():
+        session = SessionLocal()
+        try:
+            compute_and_store_embedding(db_item.id, session)
+        finally:
+            session.close()
+
+    Thread(target=_bg_compute, daemon=True).start()
+
     return db_item
 
 
