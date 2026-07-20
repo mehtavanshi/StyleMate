@@ -186,7 +186,7 @@ class MeeshoProvider(ShoppingProvider):
         if key in self._cache:
             return self._cache[key]
 
-        link = f"{self.search_url}?q={quote(key)}"
+        link = f"{self.search_url}?q={quote_plus(key)}"
         product = Product(
             name=key,
             image_url="",

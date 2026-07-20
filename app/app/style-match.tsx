@@ -148,43 +148,60 @@ function SuggestionCard({ item }: { item: SuggestionWithProducts }) {
   const extraCount = item.products.length - 1;
   const productImage = topProduct?.image_url ? imageUrl(topProduct.image_url) : null;
 
-  const linkUrl = topProduct?.affiliate_link;
+  const meeshoUrl = topProduct?.affiliate_link;
+  const googleUrl =
+    `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(item.suggestion)}`;
 
   return (
-    <TouchableOpacity
-      style={styles.suggestionCard}
-      activeOpacity={0.85}
-      onPress={() => openLink(linkUrl)}
-    >
-      <View style={styles.suggestionCardImgWrap}>
-        {productImage ? (
-          <Image source={{ uri: productImage }} style={styles.suggestionCardImg} />
-        ) : (
-          <View style={[styles.suggestionCardImg, styles.suggestionCardImgFallback]}>
-            <Text style={styles.suggestionCardFallbackIcon}>🛍️</Text>
-          </View>
-        )}
-        {topProduct && (
-          <View style={styles.suggestionSourceBadge}>
-            <Text style={styles.suggestionSourceText}>{topProduct.source}</Text>
-          </View>
-        )}
-      </View>
-      <Text style={styles.suggestionCardProduct} numberOfLines={2}>
-        {topProduct?.name || item.suggestion}
-      </Text>
-      {topProduct && topProduct.price > 0 && (
-        <Text style={styles.suggestionCardPrice}>
-          {formatPrice(topProduct.price, topProduct.currency)}
-        </Text>
-      )}
-      {extraCount > 0 && <Text style={styles.suggestionCardMore}>+{extraCount} more</Text>}
-      {topProduct && (
-        <View style={styles.suggestionCardTag}>
-          <Text style={styles.suggestionCardTagText}>{item.suggestion}</Text>
+    <View style={styles.suggestionCard}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => openLink(meeshoUrl || googleUrl)}
+      >
+        <View style={styles.suggestionCardImgWrap}>
+          {productImage ? (
+            <Image source={{ uri: productImage }} style={styles.suggestionCardImg} />
+          ) : (
+            <View style={[styles.suggestionCardImg, styles.suggestionCardImgFallback]}>
+              <Text style={styles.suggestionCardFallbackIcon}>🛍️</Text>
+            </View>
+          )}
+          {topProduct && (
+            <View style={styles.suggestionSourceBadge}>
+              <Text style={styles.suggestionSourceText}>{topProduct.source}</Text>
+            </View>
+          )}
         </View>
-      )}
-    </TouchableOpacity>
+        <Text style={styles.suggestionCardProduct} numberOfLines={2}>
+          {topProduct?.name || item.suggestion}
+        </Text>
+        {topProduct && topProduct.price > 0 && (
+          <Text style={styles.suggestionCardPrice}>
+            {formatPrice(topProduct.price, topProduct.currency)}
+          </Text>
+        )}
+        {extraCount > 0 && <Text style={styles.suggestionCardMore}>+{extraCount} more</Text>}
+      </TouchableOpacity>
+
+      <View style={styles.suggestionCardLinks}>
+        <TouchableOpacity
+          style={styles.suggestionCardLinkBtn}
+          onPress={() => openLink(meeshoUrl || googleUrl)}
+        >
+          <Text style={styles.suggestionCardLinkText}>🛍️ Meesho</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.suggestionCardLinkBtn}
+          onPress={() => openLink(googleUrl)}
+        >
+          <Text style={styles.suggestionCardLinkText}>🔍 Google</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.suggestionCardTag}>
+        <Text style={styles.suggestionCardTagText}>{item.suggestion}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -264,5 +281,19 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   suggestionCardTagText: { fontSize: 11, fontWeight: "600", color: "#6C5CE7" },
+  suggestionCardLinks: {
+    flexDirection: "row",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  suggestionCardLinkBtn: {
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+    borderRadius: 6,
+    paddingVertical: 5,
+    alignItems: "center",
+  },
+  suggestionCardLinkText: { fontSize: 11, fontWeight: "700", color: "#444" },
   suggestionCardFallback: { fontSize: 12, color: "#aaa", fontStyle: "italic", margin: 8, marginTop: 0 },
 });
