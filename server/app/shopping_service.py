@@ -1,8 +1,10 @@
-"""Shopping provider abstraction + Flipkart affiliate client.
+"""Shopping provider abstraction + concurrent multi-provider search.
 
-Mirrors the tagging provider pattern: a single ``SHOPPING_PROVIDER`` config
-constant selects the active backend, so additional providers (e.g. Amazon,
-Myntra) can be added later without touching calling code.
+A ``SHOPPING_PROVIDERS`` env var (comma-separated list) selects the active
+backends, e.g. ``flipkart,meesho``.  Calling code uses the top-level
+``search_all_providers(query)`` function to query all active providers
+concurrently via ``asyncio.gather``; each provider's results are returned
+tagged with their source platform so callers can distinguish them.
 """
 
 from __future__ import annotations
@@ -29,8 +31,11 @@ logger = logging.getLogger(__name__)
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-# Primary shopping provider: Flipkart affiliate API.
-SHOPPING_PROVIDER = os.environ.get("SHOPPING_PROVIDER", "flipkart")
+# Active shopping providers — a comma-separated list.
+# Default: flipkart, meesho (amazon can be added once eligible).
+_SHOPPING_PROVIDERS_RAW = os.environ.get("SHOPPING_PROVIDERS", "flipkart,meesho")
+SHOPPING_PROVIDERS = [p.strip() for p in _SHOPPING_PROVIDERS_RAW.split(",") if p.strip()]
+
 FLIPKART_AFFILIATE_ID = os.environ.get("FLIPKART_AFFILIATE_ID")
 FLIPKART_AFFILIATE_TOKEN = os.environ.get("FLIPKART_AFFILIATE_TOKEN")
 FLIPKART_API_BASE = os.environ.get(
@@ -38,10 +43,13 @@ FLIPKART_API_BASE = os.environ.get(
     "https://affiliate-api.flipkart.net/affiliate/1.0/search.json",
 )
 
-# Meesho has no public product API; the provider only builds a deep link to
-# its search-results page for the query string.
 MEESHO_SEARCH_URL = os.environ.get(
     "MEESHO_SEARCH_URL", "https://www.meesho.com/search"
+)
+
+AMAZON_AFFILIATE_TAG = os.environ.get("AMAZON_AFFILIATE_TAG")
+AMAZON_SEARCH_URL = os.environ.get(
+    "AMAZON_SEARCH_URL", "https://www.amazon.in/s"
 )
 
 
@@ -54,8 +62,12 @@ class Product(BaseModel):
     source: str = "flipkart"
 
 
+class ProviderResult(BaseModel):
+    platform: str
+    products: list[Product]
+
+
 def _is_retryable(exc: BaseException) -> bool:
-    """Retry only on 429 (rate limit) and 5xx (server errors)."""
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         return status == 429 or status >= 500
@@ -63,26 +75,12 @@ def _is_retryable(exc: BaseException) -> bool:
 
 
 class ShoppingProvider(ABC):
-    """Abstract base class for shopping/search providers."""
-
     @abstractmethod
     async def search(self, query: str) -> list[Product]:
-        """Return products matching ``query``."""
         raise NotImplementedError
 
 
 class FlipkartProvider(ShoppingProvider):
-    """Flipkart affiliate product search via the affiliate API.
-
-    Requires ``FLIPKART_AFFILIATE_ID`` and ``FLIPKART_AFFILIATE_TOKEN``.
-    When either is missing the provider still constructs (so config is
-    valid) but ``search`` returns an empty list and logs a warning, rather
-    than raising on import.
-
-    Results are cached per normalized query (30 min TTL, 500 entries) and
-    failed requests are retried with exponential backoff (only on 429 / 5xx).
-    """
-
     def __init__(
         self,
         affiliate_id: str | None = None,
@@ -112,7 +110,7 @@ class FlipkartProvider(ShoppingProvider):
 
         try:
             payload = await self._fetch(key)
-        except Exception as exc:  # all retries exhausted
+        except Exception as exc:
             logger.error(
                 "Flipkart search for %r failed after all retries; returning no "
                 "products. Last error: %s",
@@ -141,18 +139,11 @@ class FlipkartProvider(ShoppingProvider):
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(self.api_base, params=params, headers=headers)
-            # Raises httpx.HTTPStatusError on 4xx/5xx; retry predicate only
-            # allows 429 and 5xx through, so other 4xx fail fast.
             resp.raise_for_status()
             return resp.json()
 
 
 def _parse_flipkart_response(payload: dict) -> list[Product]:
-    """Extract ``Product`` records from a Flipkart affiliate search response.
-
-    The affiliate search JSON nests results under ``products`` with a
-    ``productBaseInfoV1`` block containing the display attributes.
-    """
     products: list[Product] = []
     raw_list = payload.get("products") or []
 
@@ -182,14 +173,6 @@ def _parse_flipkart_response(payload: dict) -> list[Product]:
 
 
 class MeeshoProvider(ShoppingProvider):
-    """Meesho deep-link fallback.
-
-    Meesho exposes no public product-search API, so this provider makes no
-    network call. Instead it returns a single ``Product`` whose
-    ``affiliate_link`` deep-links to Meesho's search-results page for the
-    query. The link is cached per normalized query like the other providers.
-    """
-
     def __init__(self, search_url: str | None = None) -> None:
         self.search_url = search_url or MEESHO_SEARCH_URL
         self._cache: TTLCache = TTLCache(maxsize=500, ttl=1800)
@@ -203,7 +186,7 @@ class MeeshoProvider(ShoppingProvider):
         if key in self._cache:
             return self._cache[key]
 
-        link = f"{self.search_url}?q={quote_plus(key)}"
+        link = f"{self.search_url}?q={quote(key)}"
         product = Product(
             name=key,
             image_url="",
@@ -216,14 +199,110 @@ class MeeshoProvider(ShoppingProvider):
         return [product]
 
 
-def get_shopping_provider() -> ShoppingProvider:
-    """Return the configured shopping provider instance.
+class AmazonProvider(ShoppingProvider):
+    def __init__(
+        self,
+        affiliate_tag: str | None = None,
+        search_url: str | None = None,
+    ) -> None:
+        self.affiliate_tag = affiliate_tag or AMAZON_AFFILIATE_TAG
+        self.search_url = search_url or AMAZON_SEARCH_URL
+        self._cache: TTLCache = TTLCache(maxsize=500, ttl=1800)
 
-    Selected via the ``SHOPPING_PROVIDER`` env var (defaults to "flipkart").
+    @staticmethod
+    def _normalize_query(query: str) -> str:
+        return " ".join((query or "").lower().split())
+
+    async def search(self, query: str) -> list[Product]:
+        key = self._normalize_query(query)
+        if key in self._cache:
+            return self._cache[key]
+
+        url = f"{self.search_url}?k={quote_plus(key)}"
+        if self.affiliate_tag:
+            url += f"&tag={quote_plus(self.affiliate_tag)}"
+
+        product = Product(
+            name=key,
+            image_url="",
+            price=0.0,
+            currency="INR",
+            affiliate_link=url,
+            source="amazon",
+        )
+        self._cache[key] = [product]
+        return [product]
+
+
+# ---------------------------------------------------------------------------
+# Provider registry — maps platform name → provider class
+# ---------------------------------------------------------------------------
+_PROVIDER_CLASSES: dict[str, type[ShoppingProvider]] = {
+    "flipkart": FlipkartProvider,
+    "meesho": MeeshoProvider,
+    "amazon": AmazonProvider,
+}
+
+
+def get_shopping_providers() -> list[ShoppingProvider]:
+    """Build and return provider instances for every platform in
+    ``SHOPPING_PROVIDERS``.
+
+    Unknown platform names are logged and silently skipped so a typo in the
+    env var doesn't crash the application.
     """
-    provider = SHOPPING_PROVIDER
-    if provider == "flipkart":
-        return FlipkartProvider()
-    if provider == "meesho":
-        return MeeshoProvider()
-    raise ValueError(f"Unknown SHOPPING_PROVIDER: {provider!r}")
+    instances: list[ShoppingProvider] = []
+    for name in SHOPPING_PROVIDERS:
+        cls = _PROVIDER_CLASSES.get(name)
+        if cls is None:
+            logger.warning(
+                "Unknown shopping provider %r in SHOPPING_PROVIDERS; skipping. "
+                "Supported: %s",
+                name,
+                ", ".join(sorted(_PROVIDER_CLASSES)),
+            )
+            continue
+        instances.append(cls())
+    return instances
+
+
+async def search_all_providers(query: str) -> list[ProviderResult]:
+    """Search every active provider concurrently.
+
+    Each provider's ``search()`` is run with ``asyncio.gather``.  If a
+    single provider fails (exception or timeout) it is caught, logged, and
+    returned as an empty product list — other providers are unaffected.
+
+    Returns a list of ``ProviderResult`` objects, one per active provider,
+    each tagged with the provider's platform name.
+    """
+    import asyncio
+
+    providers = get_shopping_providers()
+    if not providers:
+        logger.warning("No active shopping providers configured.")
+        return []
+
+    async def _safe_search(provider: ShoppingProvider, platform: str) -> ProviderResult:
+        try:
+            products = await provider.search(query)
+            return ProviderResult(platform=platform, products=products)
+        except Exception as exc:
+            logger.error(
+                "Shopping provider %r failed for query %r: %s",
+                platform,
+                query,
+                exc,
+            )
+            return ProviderResult(platform=platform, products=[])
+
+    tasks = [_safe_search(p, name) for p, name in zip(providers, SHOPPING_PROVIDERS)]
+    results: list[ProviderResult] = await asyncio.gather(*tasks, return_exceptions=True)
+
+    final: list[ProviderResult] = []
+    for r in results:
+        if isinstance(r, BaseException):
+            logger.error("Unexpected error in search_all_providers gather: %s", r)
+            continue
+        final.append(r)
+    return final

@@ -21,7 +21,7 @@ router = APIRouter(tags=["tagging"])
 # Secondary: Gemini free tier (~1,500 req/day), used only when TAGGING_PROVIDER=vision_api.
 TAGGING_PROVIDER = os.environ.get("TAGGING_PROVIDER", "fashion_clip")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
 GEMINI_API_URL = os.environ.get(
     "GEMINI_API_URL",
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
@@ -205,7 +205,13 @@ def _tag_item_vision_api(image_url: str) -> dict:
 
     # Derive formality_score from occasion_tag (consistent with FashionCLIP path).
     occasion = tags.get("occasion_tag")
-    formality_score = FORMALITY_MAP.get(occasion, 3) if occasion else 3
+    if occasion:
+        formality_score = FORMALITY_MAP.get(occasion, 3)
+        if occasion not in FORMALITY_MAP:
+            logger.info("FALLBACK: occasion=%r not in FORMALITY_MAP, using formality=3", occasion)
+    else:
+        formality_score = 3
+        logger.info("FALLBACK: occasion_tag is None, using formality=3")
     tags["formality_score"] = formality_score
     confidence["formality_score"] = 1.0
     needs_review["formality_score"] = False
@@ -219,9 +225,12 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     from app.style_embeddings import (
         CONFIDENCE_THRESHOLD,
         classify_target_gender,
-        get_embedding,
+        clear_request_cache,
         zero_shot_classify,
     )
+
+    # Clear per-request cache so the image is loaded & embedded only once.
+    clear_request_cache()
 
     tags: dict[str, str | int | None] = {}
     confidence: dict[str, float] = {}
@@ -255,10 +264,30 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
             detail=f"FashionCLIP tagging failed for all fields: {failures}",
         )
 
+    # Denim colour refinement: denim is inherently blue/navy, never black.
+    if tags.get("fabric_type") == "denim" and tags.get("dominant_color") == "black":
+        tags["dominant_color"] = "navy"
+        confidence["dominant_color"] = min(confidence.get("dominant_color", 0.0) + 0.03, 1.0)
+        needs_review["dominant_color"] = False
+        logger.info("Denim colour refinement: black -> navy")
+
+    # Color sanity: if the model says the item is "white" but the
+    # centre of the photo is dark, flag it for review.  This catches
+    # the common case where a dark garment on a light background fools
+    # the model into seeing the background as the dominant colour.
+    if tags.get("dominant_color") == "white" and confidence.get("dominant_color", 1.0) < 0.35:
+        from app.style_embeddings import _center_luminance
+        try:
+            lum = _center_luminance(image_url)
+            if lum < 100:  # centre is significantly darker than white
+                needs_review["dominant_color"] = True
+                logger.info("Color sanity: white prediction over dark centre (lum=%.1f) -> review", lum)
+        except Exception:
+            pass
+
     # Dedicated gender classification with ambiguity handling.
     try:
-        image_emb = get_embedding(image_url)
-        gender_label, gender_conf = classify_target_gender(image_emb)
+        gender_label, gender_conf = classify_target_gender(image_url)
         confidence["target_gender"] = gender_conf
         if gender_conf < CONFIDENCE_THRESHOLD:
             tags["target_gender"] = None
@@ -294,7 +323,13 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
 
     # Derive formality_score from occasion_tag (deterministic, always confident).
     occasion = tags.get("occasion_tag")
-    formality_score = FORMALITY_MAP.get(occasion, 3) if occasion else 3
+    if occasion:
+        formality_score = FORMALITY_MAP.get(occasion, 3)
+        if occasion not in FORMALITY_MAP:
+            logger.info("FALLBACK: occasion=%r not in FORMALITY_MAP, using formality=3", occasion)
+    else:
+        formality_score = 3
+        logger.info("FALLBACK: occasion_tag is None, using formality=3")
     tags["formality_score"] = formality_score
     confidence["formality_score"] = 1.0
     needs_review["formality_score"] = False
@@ -304,6 +339,12 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     if failures:
         result["_warnings"] = f"Failed fields: {', '.join(failures)}"
 
+    logger.info(
+        "FINAL _tag_item_fashion_clip(%s) tags=%s conf=%s",
+        image_url,
+        {k: v for k, v in tags.items() if not k.startswith("_")},
+        {k: round(v, 4) for k, v in confidence.items()},
+    )
     return result
 
 

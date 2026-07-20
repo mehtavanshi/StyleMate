@@ -10,7 +10,7 @@ from app.database import Base, SessionLocal, engine, get_db
 from app import models  # noqa: F401
 from app.config import load_body_type_rules
 from app.models import ClothingItem
-from app.routers import users, clothing, upload, tagging, outfits, calendar, shopping, style_match
+from app.routers import users, clothing, upload, tagging, outfits, calendar, shopping, style_match, shop_matches, style_advice
 from app.schemas import ClothingItemCreate, ClothingItemResponse
 from app.style_embeddings import compute_and_store_embedding
 
@@ -38,6 +38,8 @@ app.include_router(outfits.router)
 app.include_router(calendar.router)
 app.include_router(shopping.router)
 app.include_router(style_match.router)
+app.include_router(shop_matches.router)
+app.include_router(style_advice.router)
 
 
 @app.get("/health")

@@ -90,6 +90,7 @@ export interface TagResult {
   fabric_type: string | null;
   fit_type: string | null;
   sleeve_length: string | null;
+  target_gender: string | null;
   formality_score: number | null;
   _confidence: Record<string, number>;
   _needs_review: Record<string, boolean>;
@@ -217,6 +218,32 @@ export const styleMatchApi = {
     apiFetch<StyleMatchResponse>(`/style-match?item_id=${itemId}`),
 };
 
+export interface ShopMatchProduct {
+  name: string;
+  image_url: string;
+  price: number;
+  currency: string;
+  affiliate_link: string;
+  source: string;
+  similarity_score: number | null;
+  fit_type?: string | null;
+}
+
+export interface ShopMatchGroup {
+  label: string;
+  ai_top_picks: ShopMatchProduct[];
+  flipkart_products: ShopMatchProduct[];
+  amazon_products: ShopMatchProduct[];
+  meesho_search_link: ShopMatchProduct | null;
+}
+
+export const shopMatchApi = {
+  get: (itemId: number, refresh = false) => {
+    const query = refresh ? "?refresh=true" : "";
+    return apiFetch<ShopMatchGroup[]>(`/items/${itemId}/shop-matches${query}`);
+  },
+};
+
 export interface CalendarEntry {
   id: number;
   user_id: number;
@@ -244,6 +271,23 @@ export const calendarApi = {
       method: "PATCH",
       body: JSON.stringify(updates),
     }),
+};
+
+export interface SuggestionWithProducts {
+  suggestion: string;
+  products: ShoppingProduct[];
+}
+
+export interface StyleAdviceResponse {
+  shoes: SuggestionWithProducts[];
+  accessories: SuggestionWithProducts[];
+  layering: SuggestionWithProducts[];
+  reasoning: string;
+}
+
+export const styleAdviceApi = {
+  get: (itemId: number) =>
+    apiFetch<StyleAdviceResponse>(`/style-advice?item_id=${itemId}`),
 };
 
 export const uploadApi = {
