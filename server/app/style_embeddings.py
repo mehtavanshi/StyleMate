@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -32,6 +33,12 @@ _processor = None
 
 # In-memory cache: item_id -> embedding list
 _embedding_cache: dict[int, list[float]] = {}
+
+
+@dataclass
+class RankedProduct:
+    product: object
+    similarity_score: float | None = None
 
 
 def _get_model():
@@ -358,3 +365,39 @@ def compute_missing_embeddings(db: Session) -> int:
         compute_and_store_embedding(item.id, db)
 
     return len(items)
+
+
+def rank_by_visual_fit(
+    item_id: int, products: list, db: Session
+) -> list[RankedProduct]:
+    """Rank products by visual similarity to the given item's embedding.
+
+    Falls back to returning products with ``similarity_score=None`` when
+    the reference item has no stored embedding or the model is unavailable.
+    """
+    ref_embedding = _embedding_cache.get(item_id)
+    if ref_embedding is None:
+        from app.models import ClothingItem
+
+        item = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
+        if item and item.embedding_json:
+            try:
+                ref_embedding = json.loads(item.embedding_json)
+                _embedding_cache[item_id] = ref_embedding
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    scored: list[RankedProduct] = []
+    for p in products:
+        if ref_embedding and p.image_url:
+            try:
+                prod_emb = get_embedding(p.image_url)
+                score = cosine_similarity(ref_embedding, prod_emb)
+            except Exception:
+                score = None
+        else:
+            score = None
+        scored.append(RankedProduct(product=p, similarity_score=score))
+
+    scored.sort(key=lambda r: r.similarity_score or 0.0, reverse=True)
+    return scored

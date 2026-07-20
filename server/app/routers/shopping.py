@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.pairing_engine import find_gaps, build_search_query
-from app.shopping_service import Product, get_shopping_provider
+from app.shopping_service import Product, get_shopping_providers
 
 router = APIRouter(tags=["shopping-suggestions"])
 
@@ -46,7 +46,10 @@ async def shopping_suggestions(
     if not gaps:
         return []
 
-    provider = get_shopping_provider()
+    providers = get_shopping_providers()
+    provider = providers[0] if providers else None
+    if not provider:
+        return []
 
     groups: list[ShoppingGroupResponse] = []
     for gap in gaps:

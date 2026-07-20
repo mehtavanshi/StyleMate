@@ -546,3 +546,23 @@ def style_match_to_dict(result: StyleMatchResult) -> dict:
         "shoppingSuggestions": result.shopping_suggestions,
         "alreadyOwned": [_item(d) for d in result.already_owned],
     }
+
+
+def build_item_match_queries(item_id: int, db: Session) -> list[dict]:
+    """Build search queries for each category that matches the given item.
+
+    Returns ``[{label: "bottom", query: "Black Trousers"}, ...]``.
+    """
+    selected = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
+    if not selected:
+        return []
+
+    partner_cats = _MATCHING_CATEGORIES.get(_normalise(selected.category), [])
+    queries: list[dict] = []
+
+    for cat in partner_cats:
+        names = _generated_suggestions(selected, cat, set())
+        query = names[0].name if names else cat.capitalize()
+        queries.append({"label": cat, "query": query})
+
+    return queries
