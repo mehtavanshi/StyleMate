@@ -1,4 +1,6 @@
 import { BASE_URL } from "../config/api";
+import { CURRENT_CONSENT_VERSION, DEMO_USER_ID } from "./constants";
+export { DEMO_USER_ID };
 
 export interface ClothingItem {
   id: number;
@@ -30,7 +32,18 @@ export interface User {
   target_gender: string | null;
   style_preference: string | null;
   body_type: string | null;
+  photo_consent: boolean;
+  consent_given_at: string | null;
+  consent_version: string | null;
+  photo_url: string | null;
   created_at: string;
+}
+
+export interface ConsentStatus {
+  photo_consent: boolean;
+  consent_given_at: string | null;
+  consent_version: string | null;
+  photo_url: string | null;
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -42,10 +55,20 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     const text = await res.text();
     throw new Error(`API error ${res.status}: ${text}`);
   }
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
-const DEMO_USER_ID = 1;
+async function apiDelete(path: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (res.status !== 204) {
+    const text = await res.text();
+    throw new Error(`API error ${res.status}: ${text}`);
+  }
+}
 
 export const clothingApi = {
   list: (params?: { category?: string; season?: string; occasion_tag?: string; target_gender?: string }) => {
@@ -79,6 +102,26 @@ export const usersApi = {
       method: "POST",
       body: JSON.stringify({ body_type: bodyType }),
     }),
+};
+
+export const consentApi = {
+  getStatus: (userId: number) =>
+    apiFetch<ConsentStatus>(`/users/${userId}/consent`),
+
+  giveConsent: (userId: number) =>
+    apiFetch<ConsentStatus>(`/users/${userId}/consent`, {
+      method: "POST",
+      body: JSON.stringify({ consent_version: CURRENT_CONSENT_VERSION }),
+    }),
+
+  setPhoto: (userId: number, imageUrl: string) =>
+    apiFetch<User>(`/users/${userId}/photo`, {
+      method: "PUT",
+      body: JSON.stringify({ image_url: imageUrl }),
+    }),
+
+  deletePhoto: (userId: number) =>
+    apiDelete(`/users/${userId}/photo`),
 };
 
 export interface TagResult {
@@ -290,6 +333,34 @@ export const styleAdviceApi = {
     apiFetch<StyleAdviceResponse>(`/style-advice?item_id=${itemId}`),
 };
 
+export interface TryOnJob {
+  job_id: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  result_image_url: string | null;
+  error_message: string | null;
+  model_used: string | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+export const tryOnApi = {
+  render: (garmentId: number) =>
+    apiFetch<TryOnJob>("/try-on", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-ID": String(DEMO_USER_ID),
+      },
+      body: JSON.stringify({ garment_id: garmentId }),
+    }),
+
+  poll: (jobId: string) =>
+    apiFetch<TryOnJob>(`/try-on/${jobId}`),
+
+  results: (userId: number) =>
+    apiFetch<TryOnJob[]>(`/try-on/results/${userId}`),
+};
+
 export const uploadApi = {
   uploadImage: async (fileUri: string, fileName: string, mimeType: string) => {
     const formData = new FormData();
@@ -304,6 +375,46 @@ export const uploadApi = {
     });
     if (!res.ok) throw new Error(`Upload API error ${res.status}: ${await res.text()}`);
     return res.json() as Promise<{ image_url: string }>;
+  },
+
+  uploadImageWithProgress: (
+    fileUri: string,
+    fileName: string,
+    mimeType: string,
+    onProgress?: (progress: number) => void,
+  ): Promise<{ image_url: string }> => {
+    return new Promise((resolve, reject) => {
+      const formData = new FormData();
+      formData.append("file", {
+        uri: fileUri,
+        name: fileName,
+        type: mimeType,
+      } as any);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${BASE_URL}/upload-image`);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(e.loaded / e.total);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            reject(new Error("Invalid server response"));
+          }
+        } else {
+          reject(new Error(`Upload failed (${xhr.status})`));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error("Network error during upload"));
+      xhr.send(formData);
+    });
   },
 
   tagItem: (imageUrl: string) =>

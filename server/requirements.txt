@@ -14,7 +14,14 @@ numpy
 gdown
 python-dateutil
 pyyaml
+celery[redis]
 lightfm
 implicit
 scipy
 scikit-learn
+
+# Optional: S3 storage (set STORAGE_PROVIDER=s3)
+# boto3
+
+# Optional: GCS storage (set STORAGE_PROVIDER=gcs)
+# google-cloud-storage

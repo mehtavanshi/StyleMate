@@ -1,3 +1,7 @@
+import logging
+import os
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread
 
@@ -9,10 +13,14 @@ from sqlalchemy.orm import Session
 from app.database import Base, SessionLocal, engine, get_db
 from app import models  # noqa: F401
 from app.config import load_body_type_rules
-from app.models import ClothingItem
-from app.routers import users, clothing, upload, tagging, outfits, calendar, shopping, style_match, shop_matches, style_advice
+from app.models import User
+from app.celery_app import celery_app  # noqa: F401
+from app.routers import users, clothing, upload, tagging, outfits, calendar, shopping, style_match, shop_matches, style_advice, tryon
 from app.schemas import ClothingItemCreate, ClothingItemResponse
+from app.storage import get_storage_provider
 from app.style_embeddings import compute_and_store_embedding
+
+logger = logging.getLogger(__name__)
 
 UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
 
@@ -40,6 +48,7 @@ app.include_router(shopping.router)
 app.include_router(style_match.router)
 app.include_router(shop_matches.router)
 app.include_router(style_advice.router)
+app.include_router(tryon.router)
 
 
 @app.get("/health")
@@ -64,6 +73,58 @@ def create_clothing_item(item: ClothingItemCreate, db: Session = Depends(get_db)
     Thread(target=_bg_compute, daemon=True).start()
 
     return db_item
+
+
+# ── Background photo cleanup job ──
+
+PHOTO_RETENTION_DAYS = int(os.getenv("PHOTO_RETENTION_DAYS", "90"))
+CHECK_INTERVAL_SECONDS = int(os.getenv("PHOTO_CLEANUP_INTERVAL_SECONDS", "86400"))  # 24h
+
+
+def _cleanup_expired_photos() -> None:
+    """Delete photos whose associated account has been inactive for
+    PHOTO_RETENTION_DAYS days (using last_activity_at or created_at as a
+    fallback).  This is a config value, not hardcoded.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=PHOTO_RETENTION_DAYS)
+    db: Session = SessionLocal()
+    try:
+        expired = (
+            db.query(User)
+            .filter(
+                User.photo_url.isnot(None),
+                (
+                    (User.last_activity_at.is_(None) & (User.created_at < cutoff))
+                    | (User.last_activity_at < cutoff)
+                ),
+            )
+            .all()
+        )
+        provider = get_storage_provider()
+        for user in expired:
+            try:
+                provider.delete_file(user.photo_url)
+                logger.info("Deleted expired photo for user %s", user.id)
+            except Exception:
+                logger.exception("Failed to delete photo for user %s", user.id)
+            user.photo_url = None
+            user.photo_storage_key = None
+        db.commit()
+        if expired:
+            logger.info("Photo cleanup: removed %s expired photo(s)", len(expired))
+    except Exception:
+        logger.exception("Photo cleanup job failed")
+    finally:
+        db.close()
+
+
+def _photo_cleanup_loop() -> None:
+    while True:
+        _cleanup_expired_photos()
+        time.sleep(CHECK_INTERVAL_SECONDS)
+
+
+Thread(target=_photo_cleanup_loop, daemon=True).start()
 
 
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)

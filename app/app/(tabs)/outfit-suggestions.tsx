@@ -238,6 +238,20 @@ export default function OutfitSuggestionsScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        <View style={styles.tryonRow}>
+          <TouchableOpacity
+            style={styles.tryonBtn}
+            onPress={() => {
+              const firstItem = item.items[0];
+              if (firstItem) {
+                router.push(`/try-on?garment_id=${firstItem.id}`);
+              }
+            }}
+          >
+            <Text style={styles.tryonBtnText}>✨ Try It On</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -595,6 +609,23 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14, color: "#888", textAlign: "center", lineHeight: 22 },
 
   // Breakdown
+  // Try On
+  tryonRow: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  tryonBtn: {
+    backgroundColor: "#333",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  tryonBtnText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
   breakdownRow: {
     flexDirection: "row",
     height: 4,

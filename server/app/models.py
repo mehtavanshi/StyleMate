@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, Float, ForeignKey, Text
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, Date, Float, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -15,10 +15,17 @@ class User(Base):
     target_gender = Column(String, nullable=True)
     style_preference = Column(String, nullable=True)
     body_type = Column(String, nullable=True)
+    photo_consent = Column(Boolean, default=False)
+    consent_given_at = Column(DateTime(timezone=True), nullable=True)
+    consent_version = Column(String, nullable=True)
+    photo_url = Column(String, nullable=True)
+    photo_storage_key = Column(String, nullable=True)
+    last_activity_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     clothing_items = relationship("ClothingItem", back_populates="user")
     calendar_entries = relationship("CalendarEntry", back_populates="user")
+    try_on_results = relationship("TryOnResult", back_populates="user", cascade="all, delete-orphan")
 
 
 class ClothingItem(Base):
@@ -62,6 +69,23 @@ class CalendarEntry(Base):
     user = relationship("User", back_populates="calendar_entries")
 
 
+class TryOnResult(Base):
+    __tablename__ = "try_on_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(36), unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    outfit_items_json = Column(Text, nullable=True)
+    result_image_url = Column(String, nullable=True)
+    error_message = Column(Text, nullable=True)
+    model_used = Column(String(50), nullable=True)
+    latency_ms = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="try_on_results")
+
+
 class OutfitFeedback(Base):
     __tablename__ = "outfit_feedback"
 
@@ -72,3 +96,6 @@ class OutfitFeedback(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User")
+
+
+

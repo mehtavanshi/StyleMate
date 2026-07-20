@@ -23,9 +23,30 @@ class UserCreate(UserBase):
 
 class UserResponse(UserBase):
     id: int
+    photo_consent: bool = False
+    consent_given_at: Optional[datetime] = None
+    consent_version: Optional[str] = None
+    photo_url: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Consent ──
+
+class ConsentIn(BaseModel):
+    consent_version: str
+
+
+class ConsentResponse(BaseModel):
+    photo_consent: bool
+    consent_given_at: Optional[datetime] = None
+    consent_version: Optional[str] = None
+    photo_url: Optional[str] = None
+
+
+class PhotoUrlIn(BaseModel):
+    image_url: str
 
 
 # ── Body type ──
@@ -118,6 +139,18 @@ class CalendarEntryResponse(CalendarEntryBase):
     model_config = {"from_attributes": True}
 
 
+# ── Try-On ──
+
+class TryOnResultOut(BaseModel):
+    job_id: str
+    status: str
+    result_image_url: str | None = None
+    error_message: str | None = None
+    model_used: str | None = None
+    latency_ms: int | None = None
+    created_at: str
+
+
 # ── OutfitFeedback ──
 
 class OutfitFeedbackIn(BaseModel):
@@ -131,3 +164,6 @@ class OutfitFeedbackResponse(OutfitFeedbackIn):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+
