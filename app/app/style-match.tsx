@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   RefreshControl,
   ScrollView,
@@ -11,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import * as LinkingExpo from "expo-linking";
+import * as Linking from "expo-linking";
 import { styleAdviceApi, StyleAdviceResponse, SuggestionWithProducts } from "../lib/api";
 import { BASE_URL } from "../config/api";
 
@@ -26,10 +25,9 @@ function formatPrice(price: number, currency: string): string {
   return sym + price.toFixed(0);
 }
 
-function openLink(url: string) {
-  LinkingExpo.openURL(url).catch(() =>
-    Alert.alert("Can't open link", url)
-  );
+function openLink(url: string | null | undefined) {
+  if (!url) return;
+  Linking.openURL(url);
 }
 
 export default function StyleMatchScreen() {
@@ -150,8 +148,7 @@ function SuggestionCard({ item }: { item: SuggestionWithProducts }) {
   const extraCount = item.products.length - 1;
   const productImage = topProduct?.image_url ? imageUrl(topProduct.image_url) : null;
 
-  const linkUrl = topProduct?.affiliate_link
-    || `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(item.suggestion)}`;
+  const linkUrl = topProduct?.affiliate_link;
 
   return (
     <TouchableOpacity
