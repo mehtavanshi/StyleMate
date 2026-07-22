@@ -555,10 +555,12 @@ def _hard_rule_score(item1: ClothingItem, item2: ClothingItem) -> float:
     total = 0.0
     count = 0
 
-    o1 = _normalise(getattr(item1, "occasion_tag", None))
-    o2 = _normalise(getattr(item2, "occasion_tag", None))
+    o1 = getattr(item1, "occasion_tag", None)
+    o2 = getattr(item2, "occasion_tag", None)
     if o1 and o2:
-        total += 1.0 if o1 == o2 else 0.0
+        o1_tags = [t.strip().lower() for t in o1.split(",")]
+        o2_tags = [t.strip().lower() for t in o2.split(",")]
+        total += 1.0 if any(t in o2_tags for t in o1_tags) else 0.0
         count += 1
 
     fs1 = getattr(item1, "formality_score", None)
@@ -889,7 +891,7 @@ def suggest_outfits(
 
     query = db.query(ClothingItem).filter(ClothingItem.user_id == user_id)
     if occasion_tag:
-        query = query.filter(ClothingItem.occasion_tag == occasion_tag)
+        query = query.filter(ClothingItem.occasion_tag.contains(occasion_tag))
     if target_gender:
         query = query.filter(ClothingItem.target_gender == target_gender)
 

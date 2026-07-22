@@ -28,7 +28,7 @@ def list_items(
     if season:
         query = query.filter(ClothingItem.season == season)
     if occasion_tag:
-        query = query.filter(ClothingItem.occasion_tag == occasion_tag)
+        query = query.filter(ClothingItem.occasion_tag.contains(occasion_tag))
     if target_gender:
         query = query.filter(ClothingItem.target_gender == target_gender)
     return query.order_by(ClothingItem.created_at.desc()).all()

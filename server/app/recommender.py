@@ -62,7 +62,8 @@ def _item_features(item: ClothingItem) -> list[str]:
     if item.pattern:
         feats.append(f"pattern:{item.pattern.lower()}")
     if item.occasion_tag:
-        feats.append(f"occasion:{item.occasion_tag.lower()}")
+        for oc in item.occasion_tag.split(","):
+            feats.append(f"occasion:{oc.strip().lower()}")
     if item.season:
         feats.append(f"season:{item.season.lower()}")
     if item.formality:

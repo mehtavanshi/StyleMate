@@ -18,10 +18,14 @@ import { clothingApi, consentApi, DEMO_USER_ID, TagResult, uploadApi } from "../
 const CATEGORIES = ["top", "bottom", "dress", "outerwear", "footwear", "accessory"];
 const PATTERNS = ["solid", "striped", "printed", "checked", "other"];
 const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"];
+const SEASONS = ["spring", "summer", "fall", "winter", "all-season"];
 const TARGET_GENDERS = ["unisex", "men", "women"];
 const FABRIC_TYPES = ["cotton", "denim", "silk", "wool", "leather", "linen", "knit", "synthetic"];
 const FIT_TYPES = ["slim", "regular", "oversized", "loose"];
 const SLEEVE_LENGTHS = ["sleeveless", "short", "three_quarter", "long", "not_applicable"];
+const FORMALITY_MAP: Record<string, number> = {
+  loungewear: 1, casual: 2, office: 3, party: 4, formal: 5, ethnic: 4,
+};
 
 export default function AddItemScreen() {
   const { image_url: routeImageUrl } = useLocalSearchParams<{ image_url?: string }>();
@@ -36,7 +40,7 @@ export default function AddItemScreen() {
   const [category, setCategory] = useState("");
   const [color, setColor] = useState("");
   const [pattern, setPattern] = useState("");
-  const [occasion, setOccasion] = useState("");
+  const [occasion, setOccasion] = useState<string[]>([]);
   const [season, setSeason] = useState("");
   const [targetGender, setTargetGender] = useState("unisex");
   const [fabricType, setFabricType] = useState("");
@@ -92,11 +96,12 @@ export default function AddItemScreen() {
     if (!review.category) setCategory(tags.category ?? "");
     if (!review.dominant_color) setColor(tags.dominant_color ?? "");
     if (!review.pattern) setPattern(tags.pattern ?? "");
-    if (!review.occasion_tag) setOccasion(tags.occasion_tag ?? "");
+    if (!review.occasion_tag) setOccasion(tags.occasion_tag ? tags.occasion_tag.split(",").map(s => s.trim()) : []);
     if (!review.season) setSeason(tags.season ?? "");
     if (!review.fabric_type) setFabricType(tags.fabric_type ?? "");
     if (!review.fit_type) setFitType(tags.fit_type ?? "");
     if (!review.sleeve_length) setSleeveLength(tags.sleeve_length ?? "");
+    if (!review.target_gender) setTargetGender(tags.target_gender ?? "unisex");
     if (tags.formality_score != null) setFormalityScore(tags.formality_score);
   };
 
@@ -106,6 +111,10 @@ export default function AddItemScreen() {
       return;
     }
     setSaving(true);
+    const occasionStr = occasion.length ? occasion.join(",") : null;
+    const autoFormality = occasion.length
+      ? Math.max(...occasion.map(o => FORMALITY_MAP[o] || 3))
+      : 0;
     try {
       await clothingApi.create({
         name: name.trim(),
@@ -113,13 +122,13 @@ export default function AddItemScreen() {
         category,
         color: color.trim() || null,
         pattern: pattern || null,
-        occasion_tag: occasion || null,
+        occasion_tag: occasionStr,
         season: season.trim() || null,
         target_gender: targetGender,
         fabric_type: fabricType || null,
         fit_type: fitType || null,
         sleeve_length: sleeveLength || null,
-        formality_score: formalityScore || null,
+        formality_score: formalityScore || autoFormality || null,
       });
       resetForm();
       router.replace("/wardrobe");
@@ -137,7 +146,7 @@ export default function AddItemScreen() {
     setCategory("");
     setColor("");
     setPattern("");
-    setOccasion("");
+    setOccasion([]);
     setSeason("");
     setTargetGender("unisex");
     setFabricType("");
@@ -167,6 +176,27 @@ export default function AddItemScreen() {
           onPress={() => onSelect(o)}
         >
           <Text style={[styles.chipText, value === o && styles.chipTextActive]}>
+            {o}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
+  const renderMultiChips = (
+    options: string[],
+    selected: string[],
+    onToggle: (v: string) => void,
+    highlightReview = false,
+  ) => (
+    <View style={[styles.chipRow, highlightReview && styles.chipRowReview]}>
+      {options.map((o) => (
+        <TouchableOpacity
+          key={o}
+          style={[styles.chip, selected.includes(o) && styles.chipActive]}
+          onPress={() => onToggle(o)}
+        >
+          <Text style={[styles.chipText, selected.includes(o) && styles.chipTextActive]}>
             {o}
           </Text>
         </TouchableOpacity>
@@ -264,16 +294,15 @@ export default function AddItemScreen() {
       <Text style={styles.label}>Pattern</Text>
       {renderChips(PATTERNS, pattern, setPattern, needsReview.pattern)}
 
-      <Text style={styles.label}>Occasion</Text>
-      {renderChips(OCCASIONS, occasion, setOccasion, needsReview.occasion_tag)}
+      <Text style={styles.label}>Occasion (select all that apply)</Text>
+      {renderMultiChips(OCCASIONS, occasion, (v) => {
+        setOccasion(prev =>
+          prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]
+        );
+      }, needsReview.occasion_tag)}
 
       <Text style={styles.label}>Season</Text>
-      <TextInput
-        style={[styles.input, needsReview.season && styles.inputReview]}
-        value={season}
-        onChangeText={setSeason}
-        placeholder="e.g. winter, all-season"
-      />
+      {renderChips(SEASONS, season, setSeason, needsReview.season)}
 
       <Text style={styles.label}>Target Gender</Text>
       {renderChips(TARGET_GENDERS, targetGender, setTargetGender, needsReview.target_gender)}

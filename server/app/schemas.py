@@ -77,6 +77,10 @@ class ClothingItemBase(BaseModel):
     name: Optional[str] = None
     formality: Optional[str] = None
     target_gender: Optional[str] = "unisex"
+    fabric_type: Optional[str] = None
+    fit_type: Optional[str] = None
+    sleeve_length: Optional[str] = None
+    formality_score: Optional[int] = None
     tags: Optional[str] = None
     style_tags: Optional[str] = None
 

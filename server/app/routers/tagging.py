@@ -32,7 +32,9 @@ SYSTEM_PROMPT = (
     "Return ONLY valid JSON (no markdown, no explanation) with these exact fields: "
     "category, target_gender (men/women/unisex — default to unisex if the styling is "
     "ambiguous, do not guess), dominant_color, secondary_color (or null), pattern, "
-    "fabric_type, fit_type, sleeve_length (or 'not_applicable'), occasion_tag, season, "
+    "fabric_type, fit_type, sleeve_length (or 'not_applicable'), "
+    "occasion_tag (one of: casual, office, ethnic, party, formal, loungewear), "
+    "season (one of: spring, summer, fall, winter, all-season), "
     "formality_score (1-5). "
     "For each field also include a confidence value from 0 to 1 in a parallel "
     "'confidence' object using the same field names. "
@@ -47,7 +49,7 @@ CANDIDATE_LABELS = {
         "black", "white", "red", "blue", "navy", "green", "yellow",
         "orange", "pink", "purple", "brown", "grey", "beige",
     ],
-    "occasion_tag": ["casual", "office", "party", "formal", "loungewear"],
+    "occasion_tag": ["casual", "office", "ethnic", "party", "formal", "loungewear"],
     "season": ["spring", "summer", "fall", "winter", "all-season"],
     "fabric_type": ["cotton", "denim", "silk", "wool", "leather", "linen", "knit", "synthetic"],
     "fit_type": ["slim", "regular", "oversized", "loose"],
@@ -66,6 +68,7 @@ FORMALITY_MAP = {
     "office": 3,
     "party": 4,
     "formal": 5,
+    "ethnic": 4,
 }
 
 

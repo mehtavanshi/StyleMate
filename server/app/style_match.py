@@ -37,6 +37,13 @@ from app.pairing_engine import (
 
 logger = logging.getLogger(__name__)
 
+
+def _primary_occasion(occasion_tag: str | None) -> str | None:
+    if not occasion_tag:
+        return None
+    return occasion_tag.split(",")[0].strip()
+
+
 # ── Category pairing rules ──
 # For a selected item of a given category, which other categories "go with" it.
 # Ordered by typical importance for the UI.
@@ -189,11 +196,13 @@ def _season_score(season_a: str | None, season_b: str | None) -> float:
 
 
 def _occasion_score(oa: str | None, ob: str | None) -> float:
-    a = _normalise(oa)
-    b = _normalise(ob)
-    if not a or not b:
+    if not oa or not ob:
         return 0.5
-    return 0.9 if a == b else 0.45
+    a_tags = [t.strip() for t in oa.split(",")]
+    b_tags = [t.strip() for t in ob.split(",")]
+    if any(t in b_tags for t in a_tags):
+        return 0.9
+    return 0.45
 
 
 def _fit_score(fa: str | None, fb: str | None) -> float:
@@ -235,7 +244,7 @@ def _compatibility(selected: ClothingItem, other: ClothingItem) -> tuple[int, st
     oc_s = _occasion_score(selected.occasion_tag, other.occasion_tag)
     scores.append(oc_s)
     if oc_s >= 0.9:
-        parts.append(f"both {_normalise(selected.occasion_tag)} wear")
+        parts.append(f"both {_primary_occasion(selected.occasion_tag) or 'casual'} wear")
 
     ft_s = _fit_score(selected.fit_type, other.fit_type)
     scores.append(ft_s)
@@ -269,7 +278,7 @@ def _generated_suggestions(
     """
     sel_color = _normalise(selected.color)
     sel_hsl = _hsl_for_color(selected.color)
-    sel_occ = _normalise(selected.occasion_tag) or "casual"
+    sel_occ = _primary_occasion(selected.occasion_tag) or "casual"
 
     # Pick a complementary/neutral color to recommend for the new item.
     if sel_hsl is not None and not _is_neutral_hsl(sel_hsl, selected.color):
@@ -389,7 +398,7 @@ def _recommend_avoid_colors(selected: ClothingItem) -> tuple[list[str], list[str
 
 
 def _occasion_ideas(selected: ClothingItem) -> list[dict]:
-    sel_occ = _normalise(selected.occasion_tag) or "casual"
+    sel_occ = _primary_occasion(selected.occasion_tag) or "casual"
     mapping = {
         "casual": ["Office Casual", "Streetwear", "Weekend Casual"],
         "office": ["Office Casual", "Business Formal", "Travel"],

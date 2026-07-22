@@ -97,7 +97,8 @@ export default function WardrobeScreen() {
   const filtered = useMemo(() => {
     return items.filter((item) => {
       const catMatch = selectedCategories.size === 0 || selectedCategories.has(item.category);
-      const occMatch = selectedOccasions.size === 0 || selectedOccasions.has(item.occasion_tag || "");
+      const itemOccasions = (item.occasion_tag || "").split(",").map(s => s.trim());
+      const occMatch = selectedOccasions.size === 0 || itemOccasions.some(o => selectedOccasions.has(o));
       const genderMatch = selectedTargetGenders.size === 0 || selectedTargetGenders.has(item.target_gender || "unisex");
       return catMatch && occMatch && genderMatch;
     });
