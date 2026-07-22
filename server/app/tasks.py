@@ -12,7 +12,7 @@ from app.try_on_service import (
     TryOnProviderDownError,
     TryOnRateLimitError,
     TryOnTimeoutError,
-    generate_tryon,
+    render_outfit,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,6 @@ def execute_tryon_job(job_id: str) -> None:
         _save_result(job_id, status="processing")
 
         items = json.loads(record.outfit_items_json) if record.outfit_items_json else []
-        garment = items[0] if items else {}
 
         user = db.query(User).filter(User.id == record.user_id).first()
         if not user or not user.photo_url:
@@ -52,10 +51,9 @@ def execute_tryon_job(job_id: str) -> None:
             return
 
         start = time.time()
-        result = asyncio.run(generate_tryon(
+        result = asyncio.run(render_outfit(
             user_photo_url=user.photo_url,
-            garment_image_url=garment.get("image_url", ""),
-            garment_category=garment.get("category", "upper_body"),
+            garments=items,
         ))
         latency_ms = int((time.time() - start) * 1000)
 
@@ -67,9 +65,10 @@ def execute_tryon_job(job_id: str) -> None:
             latency_ms=latency_ms,
         )
 
+        garment_ids_str = ",".join(str(g.get("id", "?")) for g in items)
         logger.info(
-            "tryon.render provider=%s garment_id=%s latency_ms=%d success=True",
-            result.model_used, garment.get("id"), latency_ms,
+            "tryon.render provider=%s garment_ids=%s latency_ms=%d success=True",
+            result.model_used, garment_ids_str, latency_ms,
         )
 
     except TryOnInputError as exc:

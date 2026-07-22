@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import random
 import tempfile
 import time
 from abc import ABC, abstractmethod
@@ -77,6 +78,19 @@ class RenderResult(BaseModel):
 # provider's expected format internally.
 
 VALID_CATEGORIES = frozenset({"upper_body", "lower_body", "dresses/full_body"})
+
+# Maps DB clothing item category → try-on API category.
+# "top" and "outerwear" both use "upper_body" for the API,
+# but are kept distinct here so render_outfit() can order passes correctly.
+CATEGORY_TRYON_MAP: dict[str, str] = {
+    "top": "upper_body",
+    "outerwear": "upper_body",
+    "bottom": "lower_body",
+    "dress": "dresses/full_body",
+}
+
+# Categories that participate in multi-pass try-on (order matters).
+_OUTFIT_ORDER: list[str] = ["top", "bottom", "outerwear"]
 
 FASHN_CATEGORY_MAP: dict[str, str] = {
     "upper_body": "upper_body",
@@ -485,9 +499,18 @@ class FalProvider(TryOnProvider):
 # Calls a public Hugging Face Space via gradio_client.
 # Reads images from local storage (gradio_client needs local file paths),
 # uploads result back to our storage bucket.
+# Images are preprocessed to 768×1024 to match IDM-VTON's expected input.
+
+import io as _io  # for in-memory PNG encoding
 
 class FreeSelfHostedProvider(TryOnProvider):
     """Virtual try-on via a free public Hugging Face Space."""
+
+    PERSON_WIDTH = 768
+    PERSON_HEIGHT = 1024
+    GARMENT_WIDTH = 768
+    GARMENT_HEIGHT = 1024
+    RETRY_WAIT_SECONDS = 45
 
     GARMENT_DESC_MAP: dict[str, str] = {
         "upper_body": "a top",
@@ -509,6 +532,63 @@ class FreeSelfHostedProvider(TryOnProvider):
                 "HF_TOKEN not set — FreeSelfHostedProvider may be rejected by the Space"
             )
 
+    @staticmethod
+    def _space_url(space_id: str) -> str:
+        """Convert 'user/space-name' → 'https://user-space-name.hf.space'."""
+        slug = space_id.replace("/", "-").replace("_", "-").lower()
+        return f"https://{slug}.hf.space"
+
+    async def _wake_space(self) -> None:
+        """Send a lightweight GET to the Space URL to trigger GPU wake-up."""
+        url = self._space_url(self.space_id)
+        headers = {"Authorization": f"Bearer {self.hf_token}"} if self.hf_token else {}
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(url, headers=headers)
+                logger.info("HF Space wake-up ping → %s (HTTP %d)", url, resp.status_code)
+        except Exception as exc:
+            logger.warning("HF Space wake-up ping failed: %s", exc)
+
+    def _is_cold_start_error(self, exc: Exception) -> bool:
+        """Check if the error indicates the Space's GPU is not yet ready."""
+        exc_str = str(exc).lower()
+        return any(kw in exc_str for kw in (
+            "accelerator", "cold", "starting", "booting", "no gpu", "gpu not",
+        ))
+
+    @staticmethod
+    def _resize_and_center_crop(
+        img_bytes: bytes, target_w: int, target_h: int
+    ) -> bytes:
+        """Resize image to exact target dimensions using center-crop strategy.
+
+        1. Scale so the image fully covers the target rectangle (no black bars).
+        2. Center-crop to exact target dimensions.
+        3. Encode as PNG and return bytes.
+        """
+        from PIL import Image
+
+        img = Image.open(_io.BytesIO(img_bytes)).convert("RGB")
+        src_w, src_h = img.size
+
+        if src_w == target_w and src_h == target_h:
+            return img_bytes
+
+        # Scale to cover the target rectangle
+        scale = max(target_w / src_w, target_h / src_h)
+        new_w = int(src_w * scale)
+        new_h = int(src_h * scale)
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+
+        # Center-crop to exact target
+        left = (new_w - target_w) // 2
+        top_crop = (new_h - target_h) // 2
+        img = img.crop((left, top_crop, left + target_w, top_crop + target_h))
+
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
     async def render(
         self,
         user_photo_url: str,
@@ -521,9 +601,16 @@ class FreeSelfHostedProvider(TryOnProvider):
         user_bytes = provider.read_file(user_photo_url)
         garment_bytes = provider.read_file(garment_image_url)
 
+        user_bytes = self._resize_and_center_crop(
+            user_bytes, self.PERSON_WIDTH, self.PERSON_HEIGHT
+        )
+        garment_bytes = self._resize_and_center_crop(
+            garment_bytes, self.GARMENT_WIDTH, self.GARMENT_HEIGHT
+        )
+
         with tempfile.TemporaryDirectory() as tmp_dir:
-            user_path = os.path.join(tmp_dir, "user_photo.jpg")
-            garment_path = os.path.join(tmp_dir, "garment_image.jpg")
+            user_path = os.path.join(tmp_dir, "user_photo.png")
+            garment_path = os.path.join(tmp_dir, "garment_image.png")
 
             with open(user_path, "wb") as f:
                 f.write(user_bytes)
@@ -531,43 +618,22 @@ class FreeSelfHostedProvider(TryOnProvider):
                 f.write(garment_bytes)
 
             garment_des = self.GARMENT_DESC_MAP.get(category, "a top")
+            seed = random.randint(0, 2**31 - 1)
 
-            try:
-                client = Client(
-                    self.space_id,
-                    token=self.hf_token or None,
-                    httpx_kwargs={"timeout": self.timeout},
-                )
-                result = await asyncio.to_thread(
-                    lambda: client.predict(
-                        dict={
-                            "background": handle_file(user_path),
-                            "layers": [],
-                            "composite": handle_file(user_path),
-                        },
-                        garm_img=handle_file(garment_path),
-                        garment_des=garment_des,
-                        is_checked=True,
-                        is_checked_crop=False,
-                        denoise_steps=30,
-                        seed=42,
-                        api_name="/tryon",
-                    )
-                )
-            except Exception as exc:
-                exc_str = str(exc).lower()
-                if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError)):
-                    raise ProviderUnavailableError(
-                        f"HF Space unavailable (network): {exc}"
-                    ) from exc
-                if any(
-                    kw in exc_str
-                    for kw in ("timeout", "queue", "unavailable", "busy", "error")
-                ):
-                    raise ProviderUnavailableError(
-                        f"HF Space unavailable: {exc}"
-                    ) from exc
-                raise
+            logger.info(
+                "HF try-on: category=%s garment_des='%s' seed=%d "
+                "person=%dx%d garment=%dx%d",
+                category, garment_des, seed,
+                self.PERSON_WIDTH, self.PERSON_HEIGHT,
+                self.GARMENT_WIDTH, self.GARMENT_HEIGHT,
+            )
+
+            # Ping the Space to trigger GPU wake-up before creating client
+            await self._wake_space()
+
+            result = await self._try_predict(
+                user_path, garment_path, garment_des, seed
+            )
 
             # predict() returns (output_image, masked_image) — we want the first
             output = result[0] if isinstance(result, tuple) else result
@@ -592,6 +658,82 @@ class FreeSelfHostedProvider(TryOnProvider):
                 model_used="free_hf_space",
                 category=category,
             )
+
+    async def _try_predict(
+        self, user_path: str, garment_path: str, garment_des: str, seed: int
+    ):
+        """Call predict() with one retry for cold-start / accelerator errors."""
+        from gradio_client import Client, handle_file  # lazy import
+        from gradio_client.exceptions import AppError
+
+        for attempt in range(2):
+            try:
+                client = Client(
+                    self.space_id,
+                    token=self.hf_token or None,
+                    httpx_kwargs={"timeout": self.timeout},
+                )
+                logger.info(
+                    "HF predict attempt %d/2: garment_des='%s' seed=%d",
+                    attempt + 1, garment_des, seed,
+                )
+                result = await asyncio.to_thread(
+                    lambda: client.predict(
+                        dict={
+                            "background": handle_file(user_path),
+                            "layers": [],
+                            "composite": handle_file(user_path),
+                        },
+                        garm_img=handle_file(garment_path),
+                        garment_des=garment_des,
+                        is_checked=True,
+                        is_checked_crop=False,
+                        denoise_steps=30,
+                        seed=seed,
+                        api_name="/tryon",
+                    )
+                )
+                return result
+
+            except AppError as exc:
+                exc_str = str(exc).lower()
+                if any(kw in exc_str for kw in ("quota", "zerogpu", "try again in")):
+                    raise ProviderUnavailableError(
+                        f"HF Space quota exhausted: {exc}"
+                    ) from exc
+                raise
+
+            except Exception as exc:
+                exc_str = str(exc).lower()
+                if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError)):
+                    raise ProviderUnavailableError(
+                        f"HF Space unavailable (network): {exc}"
+                    ) from exc
+
+                is_cold = self._is_cold_start_error(exc)
+                if is_cold and attempt == 0:
+                    logger.warning(
+                        "HF Space cold-start detected (attempt 1/2), "
+                        "retrying in %ds...",
+                        self.RETRY_WAIT_SECONDS,
+                    )
+                    await asyncio.sleep(self.RETRY_WAIT_SECONDS)
+                    continue
+
+                if any(kw in exc_str for kw in (
+                    "timeout", "queue", "unavailable", "busy",
+                )):
+                    raise ProviderUnavailableError(
+                        f"HF Space unavailable: {exc}"
+                    ) from exc
+
+                if is_cold:
+                    raise ProviderUnavailableError(
+                        f"HF Space GPU unavailable after retry. "
+                        f"Please try again in a few minutes."
+                    ) from exc
+
+                raise
 
 
 # ── Provider factory ──
@@ -658,6 +800,87 @@ async def _render_with_retry(
     )
 
 
+# ── Outfit orchestration ──
+# Renders multiple garments in sequence (top → bottom → outerwear).
+# Each pass feeds its result back as the "person" photo for the next pass.
+# Dress garments use a single pass and skip all other categories.
+
+async def render_outfit(
+    user_photo_url: str,
+    garments: list[dict],
+) -> RenderResult:
+    """Render an outfit (1-3 garments) onto a user photo.
+
+    Each garment dict must have: id, image_url, category (DB category).
+    - dress: single pass (dresses/full_body), ignores other garments.
+    - top + bottom + outerwear: sequential passes in that order.
+    - partial combos (e.g. just top+bottom) work too.
+
+    Returns the final RenderResult after all passes.
+    Raises TryOnError on failure.
+    """
+    # Categorize garments
+    top = None
+    bottom = None
+    outerwear = None
+    dress = None
+
+    for g in garments:
+        db_cat = g.get("category", "")
+        if db_cat == "dress":
+            dress = g
+        elif db_cat == "top" and top is None:
+            top = g
+        elif db_cat == "outerwear":
+            outerwear = g
+        elif db_cat == "bottom" and bottom is None:
+            bottom = g
+
+    provider = get_try_on_provider()
+
+    garment_summary = " | ".join(
+        f"id={g['id']} cat={g['category']}" for g in garments
+    )
+    logger.info("render_outfit: %d garment(s): %s", len(garments), garment_summary)
+
+    # Dress → single pass
+    if dress:
+        cat = CATEGORY_TRYON_MAP["dress"]
+        logger.info("render_outfit PASS 1/1: dress %s → %s", dress["id"], cat)
+        return await _render_with_retry(provider, user_photo_url, dress["image_url"], cat)
+
+    # Multi-pass: top → bottom → outerwear
+    current_photo = user_photo_url
+    result = None
+    total_passes = (1 if top else 0) + (1 if bottom else 0) + (1 if outerwear else 0)
+    pass_num = 0
+
+    if top:
+        pass_num += 1
+        cat = CATEGORY_TRYON_MAP["top"]
+        logger.info("render_outfit PASS %d/%d: top %s → %s", pass_num, total_passes, top["id"], cat)
+        result = await _render_with_retry(provider, current_photo, top["image_url"], cat)
+        current_photo = result.result_storage_key
+
+    if bottom:
+        pass_num += 1
+        cat = CATEGORY_TRYON_MAP["bottom"]
+        logger.info("render_outfit PASS %d/%d: bottom %s → %s", pass_num, total_passes, bottom["id"], cat)
+        result = await _render_with_retry(provider, current_photo, bottom["image_url"], cat)
+        current_photo = result.result_storage_key
+
+    if outerwear:
+        pass_num += 1
+        cat = CATEGORY_TRYON_MAP["outerwear"]
+        logger.info("render_outfit PASS %d/%d: outerwear %s → %s", pass_num, total_passes, outerwear["id"], cat)
+        result = await _render_with_retry(provider, current_photo, outerwear["image_url"], cat)
+
+    if result is None:
+        raise TryOnInputError("No valid try-on garments provided")
+
+    return result
+
+
 # ── Main entry point ──
 
 async def generate_tryon(
@@ -688,8 +911,8 @@ async def generate_tryon(
         logger.debug("Try-on cache hit for key=%s", ck)
         return RenderResult(**cached, cached=True)
 
-    # 3. Normalize category
-    cat = garment_category if garment_category in VALID_CATEGORIES else "upper_body"
+    # 3. Normalize category (DB category → try-on API category)
+    cat = CATEGORY_TRYON_MAP.get(garment_category, "upper_body")
 
     # 4. Render
     try_on_provider = get_try_on_provider()

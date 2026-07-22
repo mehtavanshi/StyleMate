@@ -24,7 +24,7 @@ router = APIRouter(tags=["try-on"])
 # ── Request/Response models ──
 
 class TryOnRenderIn(BaseModel):
-    garment_id: int
+    garment_ids: list[int]
 
 
 class TryOnJobOut(BaseModel):
@@ -138,24 +138,31 @@ def submit_tryon(
             },
         )
 
-    garment = db.query(ClothingItem).filter(ClothingItem.id == body.garment_id).first()
-    if not garment:
-        raise HTTPException(status_code=404, detail="Garment not found")
-    if garment.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Garment does not belong to you")
-    if not garment.image_url:
-        raise HTTPException(status_code=400, detail="Garment has no image")
+    # Validate all garments
+    if not body.garment_ids:
+        raise HTTPException(status_code=400, detail="garment_ids must not be empty")
+
+    garments_data = []
+    for gid in body.garment_ids:
+        garment = db.query(ClothingItem).filter(ClothingItem.id == gid).first()
+        if not garment:
+            raise HTTPException(status_code=404, detail=f"Garment {gid} not found")
+        if garment.user_id != user_id:
+            raise HTTPException(status_code=403, detail=f"Garment {gid} does not belong to you")
+        if not garment.image_url:
+            raise HTTPException(status_code=400, detail=f"Garment {gid} has no image")
+        garments_data.append({
+            "id": garment.id,
+            "image_url": garment.image_url,
+            "category": garment.category,
+        })
 
     job_id = str(uuid.uuid4())
     record = TryOnResult(
         user_id=user_id,
         job_id=job_id,
         status="pending",
-        outfit_items_json=json.dumps([{
-            "id": garment.id,
-            "image_url": garment.image_url,
-            "category": garment.category,
-        }]),
+        outfit_items_json=json.dumps(garments_data),
     )
     db.add(record)
     db.commit()

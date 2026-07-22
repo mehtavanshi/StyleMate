@@ -347,12 +347,12 @@ export default function OutfitSuggestionsScreen() {
     }, 3000);
   }, []);
 
-  const startTryOn = useCallback(async (key: string, garmentId: number) => {
+  const startTryOn = useCallback(async (key: string, garmentIds: number[]) => {
     setTryOnStates((prev) => ({ ...prev, [key]: { status: "loading", messageIndex: 0 } }));
     rotateMessages(key);
 
     try {
-      const job = await tryOnApi.render(garmentId);
+      const job = await tryOnApi.render(garmentIds);
       setTryOnStates((prev) => ({ ...prev, [key]: { ...prev[key], status: "processing", jobId: job.job_id } }));
 
       pollRefs.current[key] = setInterval(async () => {
@@ -511,8 +511,7 @@ export default function OutfitSuggestionsScreen() {
                 style={[styles.tryonBtn, isTryOnActive && styles.tryonBtnLoading]}
                 disabled={isTryOnActive}
                 onPress={() => {
-                  const firstItem = item.items[0];
-                  if (firstItem) startTryOn(key, firstItem.id);
+                  if (itemIds.length > 0) startTryOn(key, itemIds);
                 }}
               >
                 <Text style={styles.tryonBtnText}>
@@ -534,8 +533,7 @@ export default function OutfitSuggestionsScreen() {
                   {tryOnState.error.type === "network" && (
                     <TouchableOpacity
                       onPress={() => {
-                        const firstItem = item.items[0];
-                        if (firstItem) startTryOn(key, firstItem.id);
+                        if (itemIds.length > 0) startTryOn(key, itemIds);
                       }}
                     >
                       <Text style={styles.tryonErrorAction}>Retry</Text>

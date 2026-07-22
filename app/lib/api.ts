@@ -363,14 +363,14 @@ export interface TryOnUsage {
 }
 
 export const tryOnApi = {
-  render: async (garmentId: number): Promise<TryOnJob> => {
+  render: async (garmentIds: number[]): Promise<TryOnJob> => {
     const res = await fetch(`${BASE_URL}/try-on`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-User-ID": String(DEMO_USER_ID),
       },
-      body: JSON.stringify({ garment_id: garmentId }),
+      body: JSON.stringify({ garment_ids: garmentIds }),
     });
     if (res.status === 429) {
       const body = await res.json();
