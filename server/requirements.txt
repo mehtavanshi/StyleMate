@@ -12,6 +12,7 @@ torch
 Pillow
 numpy
 gdown
+gradio-client
 python-dateutil
 pyyaml
 celery[redis]

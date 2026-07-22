@@ -1,7 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   Image,
   Modal,
@@ -14,15 +15,21 @@ import {
 import { router, useFocusEffect } from "expo-router";
 import * as Linking from "expo-linking";
 import {
+  consentApi,
+  ConsentStatus,
+  DEMO_USER_ID,
   outfitApi,
   feedbackApi,
   shoppingApi,
+  tryOnApi,
+  TryOnJob,
   OutfitSuggestion,
   OutfitItem,
   ShoppingGroup,
   ShoppingProduct,
 } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
+import TryOnUsageBadge from "../../components/TryOnUsageBadge";
 
 const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"];
 const TARGET_GENDERS = ["unisex", "men", "women"];
@@ -45,6 +52,22 @@ const BREAKDOWN_COLORS: Record<string, string> = {
   season: "#1ABC9C",
 };
 
+const TRYON_MESSAGES = [
+  "Fitting the garment...",
+  "Matching your lighting...",
+  "Almost there...",
+  "Tailoring the fit...",
+  "Blending colors...",
+];
+
+interface TryOnCardState {
+  status: "idle" | "loading" | "processing" | "completed" | "failed";
+  jobId?: string;
+  error?: { type: "rate_limit" | "bad_photo" | "network"; message: string };
+  result?: TryOnJob;
+  messageIndex: number;
+}
+
 function scoreColor(score: number): string {
   if (score >= 0.8) return "#2ECC71";
   if (score >= 0.5) return "#E8A317";
@@ -53,14 +76,20 @@ function scoreColor(score: number): string {
 
 function ItemThumb({ item }: { item: OutfitItem }) {
   const bg = CATEGORY_COLORS[item.category] || "#999";
+  const [imgFailed, setImgFailed] = useState(false);
   return (
     <TouchableOpacity
       style={styles.thumbWrap}
       activeOpacity={0.8}
       onPress={() => router.push(`/wardrobe/${item.id}`)}
+      accessibilityLabel={`${item.name || item.category} - ${item.category}`}
     >
-      {item.image_url ? (
-        <Image source={{ uri: `${BASE_URL}${item.image_url}` }} style={styles.thumbImage} />
+      {item.image_url && !imgFailed ? (
+        <Image
+          source={{ uri: `${BASE_URL}${item.image_url}` }}
+          style={styles.thumbImage}
+          onError={() => setImgFailed(true)}
+        />
       ) : (
         <View style={[styles.thumbImage, styles.thumbPlaceholder, { backgroundColor: bg + "33" }]}>
           <Text style={[styles.thumbInitial, { color: bg }]}>
@@ -123,6 +152,70 @@ function BreakdownLegend({ breakdown }: { breakdown: Record<string, number> }) {
   );
 }
 
+function ProductCard({ item }: { item: ShoppingProduct }) {
+  const [prodImgFailed, setProdImgFailed] = useState(false);
+
+  const openAffiliate = async (link: string) => {
+    if (!link) return;
+    try {
+      const supported = await Linking.canOpenURL(link);
+      if (supported) {
+        await Linking.openURL(link);
+      } else {
+        Alert.alert("Can't open link", link);
+      }
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    }
+  };
+
+  // Meesho is a deep-link fallback (no real product API), so render it
+  // distinctly as a "search" button — never as a specific product card
+  // with price/image, which would mislead the user.
+  if (item.source === "meesho") {
+    return (
+      <TouchableOpacity
+        style={styles.meeshoButton}
+        activeOpacity={0.85}
+        onPress={() => openAffiliate(item.affiliate_link)}
+      >
+        <Text style={styles.meeshoButtonText}>🔍 Search this on Meesho</Text>
+        <Text style={styles.meeshoButtonSub} numberOfLines={1}>
+          {item.name}
+        </Text>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <TouchableOpacity
+      style={styles.productCard}
+      activeOpacity={0.85}
+      onPress={() => openAffiliate(item.affiliate_link)}
+    >
+      {item.image_url && !prodImgFailed ? (
+        <Image
+          source={{ uri: item.image_url }}
+          style={styles.productImage}
+          onError={() => setProdImgFailed(true)}
+        />
+      ) : (
+        <View style={[styles.productImage, styles.productImagePlaceholder]}>
+          <Text style={styles.productInitial}>
+            {(item.name || "?")[0]?.toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <Text style={styles.productName} numberOfLines={2}>
+        {item.name}
+      </Text>
+      <Text style={styles.productPrice}>
+        {item.currency} {item.price.toFixed(2)}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
 export default function OutfitSuggestionsScreen() {
   const [suggestions, setSuggestions] = useState<OutfitSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,13 +226,19 @@ export default function OutfitSuggestionsScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const [shoppingGroups, setShoppingGroups] = useState<ShoppingGroup[]>([]);
   const [shoppingLoading, setShoppingLoading] = useState(true);
-
+  const [hasPhoto, setHasPhoto] = useState(false);
+  const [tryOnStates, setTryOnStates] = useState<Record<string, TryOnCardState>>({});
+  const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  const messageRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  const appStateRef = useRef(AppState.currentState);
+  const tryOnStatesRef = useRef(tryOnStates);
+  tryOnStatesRef.current = tryOnStates;
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 1800);
   };
 
-  const loadShopping = async () => {
+  const loadShopping = useCallback(async () => {
     setShoppingLoading(true);
     try {
       const data = await shoppingApi.suggest({
@@ -148,15 +247,14 @@ export default function OutfitSuggestionsScreen() {
       });
       setShoppingGroups(data);
     } catch (e: any) {
-      // Non-fatal: the outfit suggestions still work without shopping.
       console.warn("Shopping suggestions failed:", e.message);
       setShoppingGroups([]);
     } finally {
       setShoppingLoading(false);
     }
-  };
+  }, [selectedOccasion, selectedTargetGender]);
 
-  const loadSuggestions = async () => {
+  const loadSuggestions = useCallback(async () => {
     setLoading(true);
     try {
       const data = await outfitApi.suggest({
@@ -169,14 +267,160 @@ export default function OutfitSuggestionsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedOccasion, selectedTargetGender]);
 
   useFocusEffect(
     useCallback(() => {
       loadSuggestions();
       loadShopping();
-    }, [selectedOccasion, selectedTargetGender])
+      consentApi
+        .getStatus(DEMO_USER_ID)
+        .then((s: ConsentStatus) => setHasPhoto(!!s.photo_consent && !!s.photo_url))
+        .catch(() => {});
+    }, [selectedOccasion, selectedTargetGender, loadSuggestions, loadShopping])
   );
+
+  useEffect(() => {
+    const activePolls = pollRefs.current;
+    const activeMessages = messageRefs.current;
+    return () => {
+      Object.values(activePolls).forEach(clearInterval);
+      Object.values(activeMessages).forEach(clearInterval);
+    };
+  }, []);
+
+  // Re-poll in-flight try-ons when app returns to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      const wasBg = appStateRef.current.match(/inactive|background/);
+      appStateRef.current = nextState;
+
+      if (wasBg && nextState === "active") {
+        const states = tryOnStatesRef.current;
+        Object.entries(states).forEach(([key, state]) => {
+          if (state.status === "processing" && state.jobId) {
+            tryOnApi
+              .poll(state.jobId)
+              .then((updated) => {
+                if (updated.status === "completed" || updated.status === "failed") {
+                  clearInterval(pollRefs.current[key]);
+                  clearInterval(messageRefs.current[key]);
+                  delete pollRefs.current[key];
+                  delete messageRefs.current[key];
+
+                  if (updated.status === "completed") {
+                    setTryOnStates((prev) => ({ ...prev, [key]: { ...prev[key], status: "completed", result: updated } }));
+                    router.push(`/try-on?job_id=${updated.job_id}`);
+                  } else {
+                    let errorType: "rate_limit" | "bad_photo" | "network" = "network";
+                    if (updated.error_type === "bad_photo") errorType = "bad_photo";
+                    else if (updated.error_type === "rate_limit") errorType = "rate_limit";
+                    setTryOnStates((prev) => ({
+                      ...prev,
+                      [key]: {
+                        ...prev[key],
+                        status: "failed",
+                        error: { type: errorType, message: updated.error_message || "Try-on failed" },
+                      },
+                    }));
+                  }
+                }
+              })
+              .catch(() => {});
+          }
+        });
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
+
+  const rotateMessages = useCallback((key: string) => {
+    messageRefs.current[key] = setInterval(() => {
+      setTryOnStates((prev) => {
+        const s = prev[key];
+        if (!s || s.status === "idle" || s.status === "completed" || s.status === "failed") {
+          return prev;
+        }
+        return { ...prev, [key]: { ...s, messageIndex: (s.messageIndex + 1) % TRYON_MESSAGES.length } };
+      });
+    }, 3000);
+  }, []);
+
+  const startTryOn = useCallback(async (key: string, garmentId: number) => {
+    setTryOnStates((prev) => ({ ...prev, [key]: { status: "loading", messageIndex: 0 } }));
+    rotateMessages(key);
+
+    try {
+      const job = await tryOnApi.render(garmentId);
+      setTryOnStates((prev) => ({ ...prev, [key]: { ...prev[key], status: "processing", jobId: job.job_id } }));
+
+      pollRefs.current[key] = setInterval(async () => {
+        try {
+          const updated = await tryOnApi.poll(job.job_id);
+          if (updated.status === "completed" || updated.status === "failed") {
+            clearInterval(pollRefs.current[key]);
+            clearInterval(messageRefs.current[key]);
+            delete pollRefs.current[key];
+            delete messageRefs.current[key];
+
+            if (updated.status === "completed") {
+              setTryOnStates((prev) => ({ ...prev, [key]: { ...prev[key], status: "completed", result: updated } }));
+              router.push(`/try-on?job_id=${updated.job_id}`);
+            } else {
+              let errorType: "rate_limit" | "bad_photo" | "network" = "network";
+              if (updated.error_type === "bad_photo") errorType = "bad_photo";
+              else if (updated.error_type === "rate_limit") errorType = "rate_limit";
+              setTryOnStates((prev) => ({
+                ...prev,
+                [key]: {
+                  ...prev[key],
+                  status: "failed",
+                  error: { type: errorType, message: updated.error_message || "Try-on failed" },
+                },
+              }));
+            }
+          }
+        } catch {
+          clearInterval(pollRefs.current[key]);
+          clearInterval(messageRefs.current[key]);
+          delete pollRefs.current[key];
+          delete messageRefs.current[key];
+          setTryOnStates((prev) => ({
+            ...prev,
+            [key]: {
+              ...prev[key],
+              status: "failed",
+              error: { type: "network", message: "Could not check try-on status. Please try again." },
+            },
+          }));
+        }
+      }, 2000);
+    } catch (e: any) {
+      clearInterval(messageRefs.current[key]);
+      delete messageRefs.current[key];
+
+      if (e.rateLimit) {
+        setTryOnStates((prev) => ({
+          ...prev,
+          [key]: {
+            ...prev[key],
+            status: "failed",
+            error: { type: "rate_limit", message: e.rateLimit.message || "Daily try-on limit exceeded." },
+          },
+        }));
+      } else {
+        setTryOnStates((prev) => ({
+          ...prev,
+          [key]: {
+            ...prev[key],
+            status: "failed",
+            error: { type: "network", message: "Something went wrong. Please try again." },
+          },
+        }));
+      }
+    }
+  }, [rotateMessages]);
 
   const submitFeedback = async (key: string, itemIds: number[], liked: boolean) => {
     if (feedbackGiven[key] || pendingFeedback[key]) return;
@@ -197,6 +441,9 @@ export default function OutfitSuggestionsScreen() {
     const given = feedbackGiven[key];
     const pending = pendingFeedback[key];
     const itemIds = item.items.map((o) => o.id);
+    const tryOnState = tryOnStates[key] || { status: "idle", messageIndex: 0 };
+    const isTryOnActive = tryOnState.status === "loading" || tryOnState.status === "processing";
+
     return (
       <View style={[styles.card, given && styles.cardFeedbackGiven]}>
         <View style={styles.cardImages}>
@@ -205,6 +452,14 @@ export default function OutfitSuggestionsScreen() {
               <ItemThumb item={outfitItem} />
             </View>
           ))}
+          {isTryOnActive && (
+            <View style={styles.tryonOverlay} accessibilityRole="progressbar" accessibilityLabel="Generating virtual try-on">
+              <ActivityIndicator size="large" color="#fff" />
+              <Text style={styles.tryonOverlayText}>
+                {TRYON_MESSAGES[tryOnState.messageIndex]}
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.cardFooter}>
@@ -240,79 +495,64 @@ export default function OutfitSuggestionsScreen() {
         </View>
 
         <View style={styles.tryonRow}>
-          <TouchableOpacity
-            style={styles.tryonBtn}
-            onPress={() => {
-              const firstItem = item.items[0];
-              if (firstItem) {
-                router.push(`/try-on?garment_id=${firstItem.id}`);
-              }
-            }}
-          >
-            <Text style={styles.tryonBtnText}>✨ Try It On</Text>
-          </TouchableOpacity>
+          {!hasPhoto ? (
+            <View>
+              <TouchableOpacity
+                style={[styles.tryonBtn, styles.tryonBtnDisabled]}
+                onPress={() => router.push("/capture")}
+              >
+                <Text style={styles.tryonBtnText}>✨ Try It On</Text>
+              </TouchableOpacity>
+              <Text style={styles.tryonSubtext}>Upload a photo first to try on outfits</Text>
+            </View>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[styles.tryonBtn, isTryOnActive && styles.tryonBtnLoading]}
+                disabled={isTryOnActive}
+                onPress={() => {
+                  const firstItem = item.items[0];
+                  if (firstItem) startTryOn(key, firstItem.id);
+                }}
+              >
+                <Text style={styles.tryonBtnText}>
+                  {tryOnState.status === "loading"
+                    ? "Starting..."
+                    : tryOnState.status === "processing"
+                    ? "Processing..."
+                    : "✨ Try It On"}
+                </Text>
+              </TouchableOpacity>
+              {tryOnState.status === "failed" && tryOnState.error && (
+                <View style={styles.tryonErrorBox} accessibilityLabel={`Try-on error: ${tryOnState.error.message}`}>
+                  <Text style={styles.tryonErrorText}>{tryOnState.error.message}</Text>
+                  {tryOnState.error.type === "bad_photo" && (
+                    <TouchableOpacity onPress={() => router.push("/capture")}>
+                      <Text style={styles.tryonErrorAction}>Retake photo</Text>
+                    </TouchableOpacity>
+                  )}
+                  {tryOnState.error.type === "network" && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const firstItem = item.items[0];
+                        if (firstItem) startTryOn(key, firstItem.id);
+                      }}
+                    >
+                      <Text style={styles.tryonErrorAction}>Retry</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </>
+          )}
         </View>
       </View>
     );
   };
 
-  const openAffiliate = async (link: string) => {
-    if (!link) return;
-    try {
-      const supported = await Linking.canOpenURL(link);
-      if (supported) {
-        await Linking.openURL(link);
-      } else {
-        Alert.alert("Can't open link", link);
-      }
-    } catch (e: any) {
-      Alert.alert("Error", e.message);
-    }
-  };
-
-  const renderProductCard = ({ item }: { item: ShoppingProduct }) => {
-    // Meesho is a deep-link fallback (no real product API), so render it
-    // distinctly as a "search" button — never as a specific product card
-    // with price/image, which would mislead the user.
-    if (item.source === "meesho") {
-      return (
-        <TouchableOpacity
-          style={styles.meeshoButton}
-          activeOpacity={0.85}
-          onPress={() => openAffiliate(item.affiliate_link)}
-        >
-          <Text style={styles.meeshoButtonText}>🔍 Search this on Meesho</Text>
-          <Text style={styles.meeshoButtonSub} numberOfLines={1}>
-            {item.name}
-          </Text>
-        </TouchableOpacity>
-      );
-    }
-
-    return (
-      <TouchableOpacity
-        style={styles.productCard}
-        activeOpacity={0.85}
-        onPress={() => openAffiliate(item.affiliate_link)}
-      >
-        {item.image_url ? (
-          <Image source={{ uri: item.image_url }} style={styles.productImage} />
-        ) : (
-          <View style={[styles.productImage, styles.productImagePlaceholder]}>
-            <Text style={styles.productInitial}>
-              {(item.name || "?")[0]?.toUpperCase()}
-            </Text>
-          </View>
-        )}
-        <Text style={styles.productName} numberOfLines={2}>
-          {item.name}
-        </Text>
-        <Text style={styles.productPrice}>
-          {item.currency} {item.price.toFixed(2)}
-        </Text>
-      </TouchableOpacity>
-    );
-  };
+  const renderProductCard = ({ item }: { item: ShoppingProduct }) => (
+    <ProductCard item={item} />
+  );
 
   const CompleteTheLook = () => {
     if (shoppingLoading) {
@@ -370,14 +610,16 @@ export default function OutfitSuggestionsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} accessibilityRole="none">
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Outfit Suggestions</Text>
-        <TouchableOpacity style={styles.refreshBtn} onPress={loadSuggestions}>
+        <Text style={styles.title} accessibilityRole="header">Outfit Suggestions</Text>
+        <TouchableOpacity style={styles.refreshBtn} onPress={loadSuggestions} accessibilityLabel="Refresh outfit suggestions">
           <Text style={styles.refreshBtnText}>↻ Refresh</Text>
         </TouchableOpacity>
       </View>
+
+      <TryOnUsageBadge />
 
       {/* Occasion chips */}
       <View style={styles.chipBar}>
@@ -425,7 +667,7 @@ export default function OutfitSuggestionsScreen() {
 
       {/* Content */}
       {loading ? (
-        <View style={styles.center}>
+        <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Generating outfit suggestions">
           <ActivityIndicator size="large" color="#333" />
           <Text style={styles.loadingText}>Generating outfits...</Text>
         </View>
@@ -624,6 +866,51 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 15,
     fontWeight: "700",
+  },
+  tryonBtnDisabled: {
+    backgroundColor: "#bbb",
+  },
+  tryonBtnLoading: {
+    backgroundColor: "#666",
+  },
+  tryonSubtext: {
+    fontSize: 12,
+    color: "#888",
+    marginTop: 6,
+    textAlign: "center",
+  },
+  tryonOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  tryonOverlayText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  tryonErrorBox: {
+    backgroundColor: "#FFF0F0",
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#E74C3C33",
+  },
+  tryonErrorText: {
+    fontSize: 12,
+    color: "#C0392B",
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  tryonErrorAction: {
+    fontSize: 13,
+    color: "#E74C3C",
+    fontWeight: "700",
+    textDecorationLine: "underline",
   },
 
   breakdownRow: {

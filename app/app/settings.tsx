@@ -65,7 +65,7 @@ export default function SettingsScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
+      <View style={styles.centered} accessibilityRole="progressbar" accessibilityLabel="Loading settings">
         <ActivityIndicator size="large" color="#333" />
       </View>
     );

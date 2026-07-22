@@ -1,8 +1,11 @@
 import json
 import logging
+import os
 import uuid
+from datetime import date, datetime, time, timedelta, timezone
 
 from pydantic import BaseModel
+from sqlalchemy import text
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -11,7 +14,7 @@ from app.database import get_db
 from app.models import ClothingItem, TryOnResult, User
 from app.schemas import TryOnResultOut
 from app.storage import get_storage_provider
-from app.tasks import run_tryon_job
+from app.tasks import execute_tryon_job, run_tryon_job
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,16 @@ class TryOnRenderIn(BaseModel):
 class TryOnJobOut(BaseModel):
     job_id: str
     status: str
+    rate_limit_remaining: int | None = None
+    rate_limit_limit: int | None = None
+    rate_limit_resets_at: str | None = None
+
+
+class TryOnUsageOut(BaseModel):
+    used: int
+    limit: int
+    remaining: int
+    resets_at: str
 
 
 # ── Helpers ──
@@ -40,7 +53,49 @@ def _sign_result_url(storage_key: str | None) -> str | None:
     return get_storage_provider().get_signed_url(storage_key, expires_in=SIGNED_URL_EXPIRY)
 
 
+def _get_tryon_usage(db: Session, user_id: int) -> tuple[int, int, str]:
+    """Return (used, daily_limit, resets_at_iso) for the current day."""
+    today = date.today()
+    daily_limit = int(os.getenv("TRYON_DAILY_LIMIT", "5"))
+    used = db.query(TryOnResult).filter(
+        TryOnResult.user_id == user_id,
+        TryOnResult.status == "completed",
+        TryOnResult.created_at >= datetime.combine(today, time.min, tzinfo=timezone.utc),
+    ).count()
+    resets_at = datetime.combine(
+        today + timedelta(days=1), time.min, tzinfo=timezone.utc
+    ).isoformat()
+    return used, daily_limit, resets_at
+
+
+def _dispatch_tryon_job(job_id: str) -> None:
+    """Try Celery first; fall back to a background thread when Redis is unavailable."""
+    try:
+        run_tryon_job.delay(job_id)
+    except Exception:
+        logger.warning("Celery unavailable, running try-on job %s in background thread", job_id)
+        import threading
+        t = threading.Thread(target=execute_tryon_job, args=(job_id,), daemon=True)
+        t.start()
+
+
 # ── Endpoints ──
+
+@router.get("/try-on/usage/{user_id}", response_model=TryOnUsageOut)
+def get_tryon_usage(user_id: int, db: Session = Depends(get_db)):
+    """Return the current daily try-on usage for a user."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    used, limit, resets_at = _get_tryon_usage(db, user_id)
+    return TryOnUsageOut(
+        used=used,
+        limit=limit,
+        remaining=max(limit - used, 0),
+        resets_at=resets_at,
+    )
+
 
 @router.post("/try-on", response_model=TryOnJobOut, status_code=202)
 def submit_tryon(
@@ -68,6 +123,21 @@ def submit_tryon(
             detail="Photo consent not given.",
         )
 
+    # ── Rate limit check ──
+    usage_count, daily_limit, resets_at = _get_tryon_usage(db, user_id)
+
+    if usage_count >= daily_limit:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "rate_limit_exceeded",
+                "message": f"Daily try-on limit exceeded ({daily_limit}/day). Resets at midnight UTC.",
+                "limit": daily_limit,
+                "used": usage_count,
+                "resets_at": resets_at,
+            },
+        )
+
     garment = db.query(ClothingItem).filter(ClothingItem.id == body.garment_id).first()
     if not garment:
         raise HTTPException(status_code=404, detail="Garment not found")
@@ -90,9 +160,16 @@ def submit_tryon(
     db.add(record)
     db.commit()
 
-    run_tryon_job.delay(job_id)
+    _dispatch_tryon_job(job_id)
 
-    return TryOnJobOut(job_id=job_id, status="pending")
+    remaining = daily_limit - usage_count - 1  # -1 because this job will count
+    return TryOnJobOut(
+        job_id=job_id,
+        status="pending",
+        rate_limit_remaining=max(remaining, 0),
+        rate_limit_limit=daily_limit,
+        rate_limit_resets_at=resets_at,
+    )
 
 
 @router.get("/try-on/{job_id}", response_model=TryOnResultOut)
@@ -107,6 +184,7 @@ def get_tryon_job(job_id: str, db: Session = Depends(get_db)):
         status=record.status,
         result_image_url=_sign_result_url(record.result_image_url),
         error_message=record.error_message,
+        error_type=record.error_type,
         model_used=record.model_used,
         latency_ms=record.latency_ms,
         created_at=record.created_at.isoformat() if record.created_at else "",
@@ -132,6 +210,7 @@ def list_tryon_results(user_id: int, db: Session = Depends(get_db)):
             status=r.status,
             result_image_url=_sign_result_url(r.result_image_url),
             error_message=r.error_message,
+            error_type=r.error_type,
             model_used=r.model_used,
             latency_ms=r.latency_ms,
             created_at=r.created_at.isoformat() if r.created_at else "",

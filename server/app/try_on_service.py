@@ -5,6 +5,7 @@ TRYON_PROVIDER env var selects the active provider at startup:
   - "self_hosted" (default): calls a self-hosted inference endpoint
   - "fashn": uses Fashn.ai API
   - "kling": uses Kling API
+  - "free_hf_space": free public Hugging Face Space via gradio_client
 
 All providers read credentials from environment variables — never hardcoded.
 """
@@ -13,6 +14,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import tempfile
 import time
 from abc import ABC, abstractmethod
 
@@ -51,6 +53,13 @@ class TryOnProviderDownError(TryOnError):
 
 class TryOnRateLimitError(TryOnError):
     """Provider returned 429 — too many requests."""
+
+class ProviderUnavailableError(TryOnError):
+    """Free provider is cold-starting, rate-limited, or the Space is down.
+
+    Unlike transient errors (TryOnTimeoutError etc.) this is NOT retried
+    automatically — a shared free resource should not be hammered.
+    """
 
 
 # ── Result model ──
@@ -391,6 +400,200 @@ class KlingProvider(TryOnProvider):
         )
 
 
+# ── FAL Provider ──
+# Uses FAL.ai's hosted IDM-VTON endpoint (or similar).
+# Set FAL_KEY env var for authentication.
+
+class FalProvider(TryOnProvider):
+    """Calls FAL.ai's hosted virtual try-on API (IDM-VTON)."""
+
+    MODEL = os.getenv("TRYON_FAL_MODEL", "fal-ai/idm-vton")
+    TIMEOUT = int(os.getenv("TRYON_FAL_TIMEOUT", "120"))
+
+    def __init__(self) -> None:
+        self.api_key = os.getenv("FAL_KEY", "")
+        if not self.api_key:
+            logger.warning("FAL_KEY not set — FalProvider will fail at runtime")
+
+    async def render(
+        self,
+        user_photo_url: str,
+        garment_image_url: str,
+        category: str,
+    ) -> RenderResult:
+        provider = get_storage_provider()
+        user_signed = provider.get_signed_url(user_photo_url)
+        garment_signed = provider.get_signed_url(garment_image_url)
+
+        try:
+            async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
+                resp = await client.post(
+                    f"https://fal.run/{self.MODEL}",
+                    headers={
+                        "Authorization": f"Key {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "human_image_url": user_signed,
+                        "garment_image_url": garment_signed,
+                    },
+                )
+        except httpx.ConnectError as exc:
+            raise TryOnProviderDownError(f"Cannot reach FAL API: {exc}")
+        except httpx.TimeoutException as exc:
+            raise TryOnTimeoutError(f"FAL request timed out: {exc}")
+
+        if resp.status_code in (400, 422):
+            raise TryOnInputError(resp.text)
+        if resp.status_code in (401, 403):
+            raise TryOnAuthError(resp.text)
+        if resp.status_code == 429:
+            raise TryOnRateLimitError(resp.text)
+        if resp.status_code >= 500:
+            raise TryOnProviderDownError(f"FAL returned {resp.status_code}: {resp.text}")
+        resp.raise_for_status()
+
+        data = resp.json()
+        images = data.get("images", [])
+        if not images:
+            raise TryOnProviderDownError("FAL returned no images")
+        result_url = images[0].get("url", "")
+        if not result_url:
+            raise TryOnProviderDownError("FAL image URL is empty")
+
+        try:
+            async with httpx.AsyncClient(timeout=60) as dl:
+                img_resp = await dl.get(result_url)
+        except httpx.ConnectError as exc:
+            raise TryOnProviderDownError(f"Cannot download FAL result: {exc}")
+        except httpx.TimeoutException as exc:
+            raise TryOnTimeoutError(f"FAL result download timed out: {exc}")
+        img_resp.raise_for_status()
+
+        result_key = provider.save_file(img_resp.content, "tryon_result.png", "image/png")
+        signed = provider.get_signed_url(result_key)
+
+        return RenderResult(
+            result_image_url=signed,
+            result_storage_key=result_key,
+            model_used="fal",
+            category=category,
+        )
+
+
+# ── FreeSelfHostedProvider ──
+# Calls a public Hugging Face Space via gradio_client.
+# Reads images from local storage (gradio_client needs local file paths),
+# uploads result back to our storage bucket.
+
+class FreeSelfHostedProvider(TryOnProvider):
+    """Virtual try-on via a free public Hugging Face Space."""
+
+    GARMENT_DESC_MAP: dict[str, str] = {
+        "upper_body": "a top",
+        "lower_body": "a bottom",
+        "dresses/full_body": "a dress",
+    }
+
+    def __init__(self) -> None:
+        self.space_id = os.getenv("FREE_PROVIDER_SPACE_ID", "")
+        self.hf_token = os.getenv("HF_TOKEN", "")
+        self.timeout = int(os.getenv("FREE_PROVIDER_SPACE_TIMEOUT", "90"))
+        if not self.space_id:
+            logger.warning(
+                "FREE_PROVIDER_SPACE_ID not set — "
+                "FreeSelfHostedProvider will fail at runtime"
+            )
+        if not self.hf_token:
+            logger.warning(
+                "HF_TOKEN not set — FreeSelfHostedProvider may be rejected by the Space"
+            )
+
+    async def render(
+        self,
+        user_photo_url: str,
+        garment_image_url: str,
+        category: str,
+    ) -> RenderResult:
+        from gradio_client import Client, handle_file  # lazy import (optional dep)
+
+        provider = get_storage_provider()
+        user_bytes = provider.read_file(user_photo_url)
+        garment_bytes = provider.read_file(garment_image_url)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            user_path = os.path.join(tmp_dir, "user_photo.jpg")
+            garment_path = os.path.join(tmp_dir, "garment_image.jpg")
+
+            with open(user_path, "wb") as f:
+                f.write(user_bytes)
+            with open(garment_path, "wb") as f:
+                f.write(garment_bytes)
+
+            garment_des = self.GARMENT_DESC_MAP.get(category, "a top")
+
+            try:
+                client = Client(
+                    self.space_id,
+                    token=self.hf_token or None,
+                    httpx_kwargs={"timeout": self.timeout},
+                )
+                result = await asyncio.to_thread(
+                    lambda: client.predict(
+                        dict={
+                            "background": handle_file(user_path),
+                            "layers": [],
+                            "composite": handle_file(user_path),
+                        },
+                        garm_img=handle_file(garment_path),
+                        garment_des=garment_des,
+                        is_checked=True,
+                        is_checked_crop=False,
+                        denoise_steps=30,
+                        seed=42,
+                        api_name="/tryon",
+                    )
+                )
+            except Exception as exc:
+                exc_str = str(exc).lower()
+                if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError)):
+                    raise ProviderUnavailableError(
+                        f"HF Space unavailable (network): {exc}"
+                    ) from exc
+                if any(
+                    kw in exc_str
+                    for kw in ("timeout", "queue", "unavailable", "busy", "error")
+                ):
+                    raise ProviderUnavailableError(
+                        f"HF Space unavailable: {exc}"
+                    ) from exc
+                raise
+
+            # predict() returns (output_image, masked_image) — we want the first
+            output = result[0] if isinstance(result, tuple) else result
+
+            # output may be a URL or a local file path returned by the Space
+            if isinstance(output, str) and output.startswith("http"):
+                img_resp = httpx.get(output, timeout=60)
+                img_resp.raise_for_status()
+                img_bytes = img_resp.content
+            else:
+                with open(output, "rb") as f:
+                    img_bytes = f.read()
+
+            result_key = provider.save_file(
+                img_bytes, "tryon_result.png", "image/png"
+            )
+            signed = provider.get_signed_url(result_key)
+
+            return RenderResult(
+                result_image_url=signed,
+                result_storage_key=result_key,
+                model_used="free_hf_space",
+                category=category,
+            )
+
+
 # ── Provider factory ──
 # Reads TRYON_PROVIDER at import time (startup), not per-request.
 
@@ -403,11 +606,24 @@ def get_try_on_provider() -> TryOnProvider:
     if _PROVIDER_INSTANCE is not None:
         return _PROVIDER_INSTANCE
 
-    name = os.getenv("TRYON_PROVIDER", "self_hosted").lower()
+    name = os.getenv("TRYON_PROVIDER", "fal").lower()
     if name == "fashn":
         _PROVIDER_INSTANCE = FashnProvider()
     elif name == "kling":
         _PROVIDER_INSTANCE = KlingProvider()
+    elif name == "fal":
+        _PROVIDER_INSTANCE = FalProvider()
+    elif name == "free_hf_space":
+        if not os.getenv("FREE_PROVIDER_SPACE_ID"):
+            logger.warning(
+                "FREE_PROVIDER_SPACE_ID is not set — "
+                "FreeSelfHostedProvider calls will fail"
+            )
+        logger.warning(
+            "Using free non-commercial try-on provider — not licensed for "
+            "commercial use, no uptime SLA. Switch TRYON_PROVIDER before launch."
+        )
+        _PROVIDER_INSTANCE = FreeSelfHostedProvider()
     else:
         _PROVIDER_INSTANCE = SelfHostedProvider()
 

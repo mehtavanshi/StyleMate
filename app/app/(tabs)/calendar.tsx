@@ -52,12 +52,14 @@ function OutfitThumb({
   item: { id: number; name: string | null; category: string; image_url: string | null };
 }) {
   const bg = CATEGORY_COLORS[item.category] || "#999";
+  const [imgFailed, setImgFailed] = useState(false);
   return (
     <View style={styles.outfitThumb}>
-      {item.image_url ? (
+      {item.image_url && !imgFailed ? (
         <Image
           source={{ uri: `${BASE_URL}${item.image_url}` }}
           style={styles.outfitThumbImg}
+          onError={() => setImgFailed(true)}
         />
       ) : (
         <View
@@ -218,7 +220,7 @@ export default function CalendarScreen() {
   return (
     <View style={styles.container}>
       {loading ? (
-        <View style={styles.center}>
+        <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Loading calendar">
           <ActivityIndicator size="large" color="#333" />
           <Text style={styles.loadingText}>Loading calendar...</Text>
         </View>

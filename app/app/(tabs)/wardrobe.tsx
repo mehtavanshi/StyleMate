@@ -25,6 +25,36 @@ const CATEGORY_COLORS: Record<string, string> = {
   accessory: "#E74C3C",
 };
 
+function WardrobeGridCell({ item }: { item: ClothingItem }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  return (
+    <TouchableOpacity
+      style={styles.gridCell}
+      onPress={() => router.push(`/wardrobe/${item.id}`)}
+      activeOpacity={0.8}
+      accessibilityLabel={`${item.name || "Unnamed"} - ${item.category}`}
+    >
+      {item.image_url && !imgFailed ? (
+        <Image
+          source={{ uri: `${BASE_URL}${item.image_url}` }}
+          style={styles.gridImage}
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        <View style={[styles.gridImage, styles.gridImagePlaceholder]}>
+          <Text style={styles.placeholderText}>{item.name?.[0] || "?"}</Text>
+        </View>
+      )}
+      <View style={[styles.gridBadge, { backgroundColor: CATEGORY_COLORS[item.category] || "#999" }]}>
+        <Text style={styles.gridBadgeText}>{item.category}</Text>
+      </View>
+      <View style={styles.gridOverlay}>
+        <Text style={styles.gridName} numberOfLines={1}>{item.name || "Unnamed"}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 export default function WardrobeScreen() {
   const [items, setItems] = useState<ClothingItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,30 +135,12 @@ export default function WardrobeScreen() {
   );
 
   const renderItem = ({ item }: { item: ClothingItem }) => (
-    <TouchableOpacity
-      style={styles.gridCell}
-      onPress={() => router.push(`/wardrobe/${item.id}`)}
-      activeOpacity={0.8}
-    >
-      {item.image_url ? (
-        <Image source={{ uri: `${BASE_URL}${item.image_url}` }} style={styles.gridImage} />
-      ) : (
-        <View style={[styles.gridImage, styles.gridImagePlaceholder]}>
-          <Text style={styles.placeholderText}>{item.name?.[0] || "?"}</Text>
-        </View>
-      )}
-      <View style={[styles.gridBadge, { backgroundColor: CATEGORY_COLORS[item.category] || "#999" }]}>
-        <Text style={styles.gridBadgeText}>{item.category}</Text>
-      </View>
-      <View style={styles.gridOverlay}>
-        <Text style={styles.gridName} numberOfLines={1}>{item.name || "Unnamed"}</Text>
-      </View>
-    </TouchableOpacity>
+    <WardrobeGridCell item={item} />
   );
 
   if (loading) {
     return (
-      <View style={styles.center}>
+      <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Loading your wardrobe">
         <Text style={styles.loadingText}>Loading wardrobe...</Text>
       </View>
     );

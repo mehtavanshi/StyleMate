@@ -146,6 +146,7 @@ class TryOnResultOut(BaseModel):
     status: str
     result_image_url: str | None = None
     error_message: str | None = None
+    error_type: str | None = None
     model_used: str | None = None
     latency_ms: int | None = None
     created_at: str

@@ -4,7 +4,10 @@ from app.storage import get_storage_provider
 
 router = APIRouter(tags=["upload"])
 
-ALLOWED_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+ALLOWED_TYPES = {
+    "image/jpeg", "image/png", "image/gif", "image/webp",
+    "image/heic", "image/heif",
+}
 MAX_SIZE_MB = 10
 
 

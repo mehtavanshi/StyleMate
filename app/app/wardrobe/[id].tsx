@@ -26,6 +26,7 @@ export default function ItemDetailScreen() {
   const navigation = useNavigation();
   const [item, setItem] = useState<ClothingItem | null>(null);
   const [loading, setLoading] = useState(true);
+  const [imgFailed, setImgFailed] = useState(false);
 
   useEffect(() => {
     navigation.setOptions({ title: "Item Details", headerShown: true });
@@ -67,7 +68,7 @@ export default function ItemDetailScreen() {
 
   if (loading || !item) {
     return (
-      <View style={styles.center}>
+      <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Loading item details">
         <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
@@ -85,10 +86,15 @@ export default function ItemDetailScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {item.image_url ? (
-        <Image source={{ uri: `${BASE_URL}${item.image_url}` }} style={styles.image} />
+      {item.image_url && !imgFailed ? (
+        <Image
+          source={{ uri: `${BASE_URL}${item.image_url}` }}
+          style={styles.image}
+          accessibilityLabel={`Image of ${item.name || "clothing item"}`}
+          onError={() => setImgFailed(true)}
+        />
       ) : (
-        <View style={[styles.image, styles.imagePlaceholder]}>
+        <View style={[styles.image, styles.imagePlaceholder]} accessibilityLabel="Image unavailable">
           <Text style={styles.placeholderText}>{item.name?.[0] || "?"}</Text>
         </View>
       )}

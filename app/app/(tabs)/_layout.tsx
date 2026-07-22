@@ -10,6 +10,10 @@ export default function TabsLayout() {
         name="outfit-suggestions"
         options={{ title: "Outfits" }}
       />
+      <Tabs.Screen
+        name="my-tryons"
+        options={{ title: "My Try-Ons" }}
+      />
       <Tabs.Screen name="calendar" options={{ title: "Calendar" }} />
     </Tabs>
   );

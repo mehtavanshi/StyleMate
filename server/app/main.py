@@ -5,6 +5,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread
 
+from dotenv import load_dotenv
+
+# Load .env before anything else reads os.getenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +32,16 @@ UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
 Base.metadata.create_all(bind=engine)
 
 load_body_type_rules()
+
+# Ensure demo user exists (id=1) so the app works out of the box.
+_db = SessionLocal()
+try:
+    if not _db.query(User).filter(User.id == 1).first():
+        _db.add(User(id=1, name="Demo User", email="demo@stylemate.app"))
+        _db.commit()
+        logger.info("Created demo user (id=1)")
+finally:
+    _db.close()
 
 app = FastAPI(title="StyleMate API")
 

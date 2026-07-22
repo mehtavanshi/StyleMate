@@ -225,12 +225,8 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     from app.style_embeddings import (
         CONFIDENCE_THRESHOLD,
         classify_target_gender,
-        clear_request_cache,
         zero_shot_classify,
     )
-
-    # Clear per-request cache so the image is loaded & embedded only once.
-    clear_request_cache()
 
     tags: dict[str, str | int | None] = {}
     confidence: dict[str, float] = {}
@@ -287,7 +283,9 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
 
     # Dedicated gender classification with ambiguity handling.
     try:
-        gender_label, gender_conf = classify_target_gender(image_url)
+        from app.style_embeddings import get_embedding
+        image_emb = get_embedding(image_url)
+        gender_label, gender_conf = classify_target_gender(image_emb)
         confidence["target_gender"] = gender_conf
         if gender_conf < CONFIDENCE_THRESHOLD:
             tags["target_gender"] = None

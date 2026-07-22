@@ -338,27 +338,68 @@ export interface TryOnJob {
   status: "pending" | "processing" | "completed" | "failed";
   result_image_url: string | null;
   error_message: string | null;
+  error_type: "bad_photo" | "provider_error" | "rate_limit" | null;
   model_used: string | null;
   latency_ms: number | null;
   created_at: string;
+  rate_limit_remaining?: number | null;
+  rate_limit_limit?: number | null;
+  rate_limit_resets_at?: string | null;
+}
+
+export interface TryOnRateLimitError {
+  error: string;
+  message: string;
+  limit: number;
+  used: number;
+  resets_at: string;
+}
+
+export interface TryOnUsage {
+  used: number;
+  limit: number;
+  remaining: number;
+  resets_at: string;
 }
 
 export const tryOnApi = {
-  render: (garmentId: number) =>
-    apiFetch<TryOnJob>("/try-on", {
+  render: async (garmentId: number): Promise<TryOnJob> => {
+    const res = await fetch(`${BASE_URL}/try-on`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-User-ID": String(DEMO_USER_ID),
       },
       body: JSON.stringify({ garment_id: garmentId }),
-    }),
+    });
+    if (res.status === 429) {
+      const body = await res.json();
+      const detail = body?.detail || {};
+      const err = new Error(detail.message || "Daily try-on limit exceeded");
+      (err as any).rateLimit = {
+        error: detail.error || "rate_limit_exceeded",
+        message: detail.message || "Daily try-on limit exceeded",
+        limit: detail.limit || 0,
+        used: detail.used || 0,
+        resets_at: detail.resets_at || "",
+      } as TryOnRateLimitError;
+      throw err;
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API error ${res.status}: ${text}`);
+    }
+    return res.json();
+  },
 
   poll: (jobId: string) =>
     apiFetch<TryOnJob>(`/try-on/${jobId}`),
 
   results: (userId: number) =>
     apiFetch<TryOnJob[]>(`/try-on/results/${userId}`),
+
+  usage: (userId: number) =>
+    apiFetch<TryOnUsage>(`/try-on/usage/${userId}`),
 };
 
 export const uploadApi = {

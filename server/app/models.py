@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, DateTime, Date, Float, ForeignKey, Text
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, Date, Float, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -79,11 +79,26 @@ class TryOnResult(Base):
     outfit_items_json = Column(Text, nullable=True)
     result_image_url = Column(String, nullable=True)
     error_message = Column(Text, nullable=True)
+    error_type = Column(String(20), nullable=True)  # bad_photo | provider_error | rate_limit
     model_used = Column(String(50), nullable=True)
     latency_ms = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="try_on_results")
+
+
+class TryOnUsage(Base):
+    __tablename__ = "try_on_usage"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    usage_date = Column(Date, nullable=False)
+    count = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "usage_date", name="uq_try_on_usage_user_date"),
+    )
 
 
 class OutfitFeedback(Base):

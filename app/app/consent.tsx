@@ -54,7 +54,7 @@ export default function ConsentScreen() {
 
   if (checking) {
     return (
-      <View style={styles.centered}>
+      <View style={styles.centered} accessibilityRole="progressbar" accessibilityLabel="Checking consent status">
         <ActivityIndicator size="large" color="#333" />
       </View>
     );

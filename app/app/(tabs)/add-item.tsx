@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -10,10 +10,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import * as ImagePicker from "expo-image-picker";
-import { router } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 
-import { clothingApi, TagResult, uploadApi } from "../../lib/api";
+import { BASE_URL } from "../../config/api";
+import { clothingApi, consentApi, DEMO_USER_ID, TagResult, uploadApi } from "../../lib/api";
 
 const CATEGORIES = ["top", "bottom", "dress", "outerwear", "footwear", "accessory"];
 const PATTERNS = ["solid", "striped", "printed", "checked", "other"];
@@ -24,13 +24,14 @@ const FIT_TYPES = ["slim", "regular", "oversized", "loose"];
 const SLEEVE_LENGTHS = ["sleeveless", "short", "three_quarter", "long", "not_applicable"];
 
 export default function AddItemScreen() {
-  const [step, setStep] = useState<"pick" | "loading" | "form" | "error">("pick");
+  const { image_url: routeImageUrl } = useLocalSearchParams<{ image_url?: string }>();
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [step, setStep] = useState<"tagging" | "form" | "error">("form");
   const [errorMsg, setErrorMsg] = useState("");
 
-  const [imageUri, setImageUri] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageUri, setImageUri] = useState<string | null>(null);
 
-  // Editable AI-suggested fields
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [color, setColor] = useState("");
@@ -43,54 +44,40 @@ export default function AddItemScreen() {
   const [sleeveLength, setSleeveLength] = useState("");
   const [formalityScore, setFormalityScore] = useState(0);
   const [showMore, setShowMore] = useState(false);
-
   const [needsReview, setNeedsReview] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
 
-  // ── Image picker ──
+  useEffect(() => {
+    consentApi
+      .getStatus(DEMO_USER_ID)
+      .then((status) => {
+        if (!status.photo_consent) {
+          router.replace("/consent");
+        } else {
+          setConsentChecked(true);
+        }
+      })
+      .catch(() => setConsentChecked(true));
+  }, []);
 
-  const pickImage = async (useCamera: boolean) => {
-    const permission = useCamera
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert("Permission needed", "Camera/gallery access is required to add items.");
-      return;
+  useEffect(() => {
+    if (routeImageUrl && routeImageUrl !== imageUrl) {
+      setImageUrl(routeImageUrl);
+      handleTagImage(routeImageUrl);
     }
+  }, [routeImageUrl]);
 
-    const result = useCamera
-      ? await ImagePicker.launchCameraAsync({
-          mediaTypes: ["images"],
-          quality: 0.8,
-        })
-      : await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ["images"],
-          quality: 0.8,
-        });
+  useFocusEffect(
+    useCallback(() => {
+      setImageUri(null);
+    }, []),
+  );
 
-    if (result.canceled) return;
-
-    const asset = result.assets[0];
-    setImageUri(asset.uri);
-    await analyzeImage(asset);
-  };
-
-  // ── Upload + AI tagging ──
-
-  const analyzeImage = async (asset: ImagePicker.ImagePickerAsset) => {
-    setStep("loading");
+  const handleTagImage = async (url: string) => {
+    setStep("tagging");
     setErrorMsg("");
-
     try {
-      const { image_url } = await uploadApi.uploadImage(
-        asset.uri,
-        asset.fileName || "item.jpg",
-        asset.mimeType || "image/jpeg"
-      );
-      setImageUrl(image_url);
-
-      const tags = await uploadApi.tagItem(image_url);
+      const tags = await uploadApi.tagItem(url);
       applyTags(tags);
       setStep("form");
     } catch (e: any) {
@@ -112,8 +99,6 @@ export default function AddItemScreen() {
     if (!review.sleeve_length) setSleeveLength(tags.sleeve_length ?? "");
     if (tags.formality_score != null) setFormalityScore(tags.formality_score);
   };
-
-  // ── Save ──
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -146,9 +131,8 @@ export default function AddItemScreen() {
   };
 
   const resetForm = () => {
-    setStep("pick");
-    setImageUri(null);
     setImageUrl(null);
+    setImageUri(null);
     setName("");
     setCategory("");
     setColor("");
@@ -162,9 +146,12 @@ export default function AddItemScreen() {
     setFormalityScore(0);
     setShowMore(false);
     setNeedsReview({});
+    setStep("form");
   };
 
-  // ── Renderers ──
+  const handleNavigateToCapture = () => {
+    router.push("/capture?mode=item");
+  };
 
   const renderChips = (
     options: string[],
@@ -187,80 +174,73 @@ export default function AddItemScreen() {
     </View>
   );
 
-  // ── Pick step ──
-
-  if (step === "pick") {
+  if (!consentChecked) {
     return (
       <View style={styles.container}>
-        <View style={styles.pickContent}>
-          <Text style={styles.heading}>Add New Item</Text>
-          <Text style={styles.subtitle}>
-            Take a photo or pick one from your gallery to auto-tag it.
-          </Text>
-
-          <TouchableOpacity style={styles.pickButton} onPress={() => pickImage(true)}>
-            <Text style={styles.pickButtonText}>Take Photo</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.pickButton, styles.pickButtonSecondary]}
-            onPress={() => pickImage(false)}
-          >
-            <Text style={[styles.pickButtonText, styles.pickButtonTextSecondary]}>
-              Pick from Gallery
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <ActivityIndicator size="large" color="#333" style={{ marginTop: 100 }} />
       </View>
     );
   }
 
-  // ── Loading step ──
-
-  if (step === "loading") {
+  // Tagging step
+  if (step === "tagging") {
     return (
-      <View style={styles.container}>
+      <View style={styles.container} accessibilityRole="progressbar" accessibilityLabel="Analyzing garment with AI">
         <View style={styles.loadingContent}>
-          {imageUri && (
-            <Image source={{ uri: imageUri }} style={styles.previewImage} />
-          )}
-          <ActivityIndicator size="large" color="#333" style={{ marginTop: 20 }} />
+          <ActivityIndicator size="large" color="#333" />
           <Text style={styles.loadingText}>Analyzing with AI...</Text>
         </View>
       </View>
     );
   }
 
-  // ── Error step ──
-
+  // Error step
   if (step === "error") {
     return (
       <View style={styles.container}>
-        <View style={styles.errorContent}>
-          {imageUri && (
-            <Image source={{ uri: imageUri }} style={styles.previewImage} />
-          )}
+        <View style={styles.loadingContent}>
           <Text style={styles.errorTitle}>Tagging Failed</Text>
-          <Text style={styles.errorDetail}>{errorMsg || "Tagging failed. Please retry or enter tags manually."}</Text>
+          <Text style={styles.errorDetail}>{errorMsg || "Failed to analyze image."}</Text>
           <TouchableOpacity
-            style={styles.retryButton}
+            style={styles.button}
             onPress={() => {
-              setStep("pick");
-              setImageUri(null);
+              if (imageUrl) {
+                setStep("form");
+              } else {
+                handleNavigateToCapture();
+              }
             }}
           >
-            <Text style={styles.retryButtonText}>Try Again</Text>
+            <Text style={styles.buttonText}>Try Again</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
-  // ── Form step ──
+  // No image yet — show CTA
+  if (!imageUrl) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.pickContent}>
+          <Text style={styles.heading}>Add New Item</Text>
+          <Text style={styles.subtitle}>
+            Take a photo of your clothing to auto-tag it with AI.
+          </Text>
+          <TouchableOpacity style={styles.button} onPress={handleNavigateToCapture}>
+            <Text style={styles.buttonText}>Take Photo</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
+  // Form step
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.formContent}>
-      {imageUri && <Image source={{ uri: imageUri }} style={styles.formImage} />}
+      {imageUrl && (
+        <Image source={{ uri: `${BASE_URL}${imageUrl}` }} style={styles.formImage} />
+      )}
 
       <Text style={styles.label}>Name *</Text>
       <TextInput
@@ -347,8 +327,8 @@ export default function AddItemScreen() {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.cancelButton} onPress={resetForm}>
-          <Text style={styles.cancelButtonText}>Cancel</Text>
+        <TouchableOpacity style={styles.cancelButton} onPress={handleNavigateToCapture}>
+          <Text style={styles.cancelButtonText}>Retake Photo</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -357,39 +337,22 @@ export default function AddItemScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f5f5f5" },
-
-  // Pick step
   pickContent: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40 },
   heading: { fontSize: 24, fontWeight: "700", marginBottom: 8 },
   subtitle: { fontSize: 15, color: "#666", textAlign: "center", marginBottom: 32, lineHeight: 22 },
-  pickButton: {
+  loadingContent: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40 },
+  loadingText: { fontSize: 16, color: "#666", marginTop: 12 },
+  errorTitle: { fontSize: 18, fontWeight: "700", color: "#c00", marginTop: 16, marginBottom: 8 },
+  errorDetail: { fontSize: 14, color: "#888", textAlign: "center", marginBottom: 24 },
+  button: {
     width: "100%",
     backgroundColor: "#333",
     borderRadius: 12,
     padding: 16,
     alignItems: "center",
-    marginBottom: 12,
   },
-  pickButtonSecondary: { backgroundColor: "#fff", borderWidth: 1.5, borderColor: "#333" },
-  pickButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  pickButtonTextSecondary: { color: "#333" },
-
-  // Loading step
-  loadingContent: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40 },
-  loadingText: { fontSize: 16, color: "#666", marginTop: 12 },
-
-  // Error step
-  errorContent: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40 },
-  errorTitle: { fontSize: 18, fontWeight: "700", color: "#c00", marginTop: 16, marginBottom: 8 },
-  errorDetail: { fontSize: 14, color: "#888", textAlign: "center", marginBottom: 24 },
-  retryButton: { backgroundColor: "#333", borderRadius: 12, paddingHorizontal: 40, paddingVertical: 14 },
-  retryButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-
-  // Common image
-  previewImage: { width: 180, height: 180, borderRadius: 12 },
+  buttonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   formImage: { width: "100%", height: 200, borderRadius: 12, marginBottom: 16 },
-
-  // Form step
   formContent: { padding: 20, paddingBottom: 40 },
   label: { fontSize: 14, fontWeight: "600", marginTop: 16, marginBottom: 6, color: "#333" },
   input: {

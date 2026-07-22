@@ -15,17 +15,29 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.stylemate.app"
+      "bundleIdentifier": "com.stylemate.app",
+      "infoPlist": {
+        "NSPhotoLibraryAddUsageDescription": "StyleMate needs photo library access to save your virtual try-on images."
+      }
     },
     "android": {
-      "package": "com.stylemate.app"
+      "package": "com.stylemate.app",
+      "permissions": ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "READ_MEDIA_IMAGES"]
     },
     "web": {
       "bundler": "metro",
       "output": "static"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "StyleMate needs camera access to take your photo for virtual try-on."
+        }
+      ],
+      ["expo-dev-client", { "launchMode": "most-recent" }],
+      "expo-media-library"
     ]
   }
 }

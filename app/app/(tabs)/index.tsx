@@ -14,6 +14,7 @@ import { router } from "expo-router";
 import { ConsentStatus, DEMO_USER_ID, consentApi } from "../../lib/api";
 import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
+import TryOnUsageBadge from "../../components/TryOnUsageBadge";
 
 const ONBOARDING_FLAG = "onboarding_complete";
 
@@ -60,8 +61,8 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>StyleMate</Text>
+    <View style={styles.container} accessibilityRole="none">
+      <Text style={styles.title} accessibilityRole="header">StyleMate</Text>
       <Text style={styles.subtitle}>Your AI Wardrobe Assistant</Text>
 
       <View style={styles.card}>
@@ -69,6 +70,7 @@ export default function HomeScreen() {
         <Text style={styles.cardText}>
           Open the Wardrobe tab to start adding items.
         </Text>
+        <TryOnUsageBadge />
       </View>
 
       {!checked ? (

@@ -75,7 +75,7 @@ export default function StyleMatchScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
+      <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Getting AI style advice">
         <ActivityIndicator size="large" color="#333" />
         <Text style={styles.loadingText}>Getting AI style advice…</Text>
       </View>

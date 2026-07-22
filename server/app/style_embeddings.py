@@ -141,6 +141,22 @@ LABEL_TEMPLATES = [
 CONFIDENCE_THRESHOLD: float = 0.24
 GENDER_MARGIN: float = 0.05
 
+
+def _center_luminance(image_path_or_url: str) -> float:
+    """Compute average luminance of the centre region of an image.
+
+    Returns a value in [0, 255].  Used as a sanity check: if the model
+    says an item is "white" but the centre of the photo is dark, the
+    prediction is likely picking up on the background.
+    """
+    image = _resolve_image(image_path_or_url)
+    w, h = image.size
+    cx, cy = w // 2, h // 2
+    box = (cx - w // 6, cy - h // 6, cx + w // 6, cy + h // 6)
+    crop = image.crop(box).convert("L")  # greyscale
+    pixels = list(crop.getdata())
+    return sum(pixels) / len(pixels) if pixels else 128.0
+
 _ensembled_label_cache: dict[str, list[float]] = {}
 
 

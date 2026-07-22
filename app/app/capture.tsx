@@ -215,7 +215,7 @@ export default function CaptureScreen() {
   // Render validating state
   if (step === "validating") {
     return (
-      <View style={styles.centered}>
+      <View style={styles.centered} accessibilityRole="progressbar" accessibilityLabel="Checking photo quality">
         <ActivityIndicator size="large" color="#333" />
         <Text style={styles.loadingText}>Checking photo quality...</Text>
       </View>
@@ -225,7 +225,7 @@ export default function CaptureScreen() {
   // Render uploading state
   if (step === "uploading") {
     return (
-      <View style={styles.centered}>
+      <View style={styles.centered} accessibilityRole="progressbar" accessibilityLabel={`Uploading photo: ${Math.round(uploadProgress * 100)}%`}>
         <ActivityIndicator size="large" color="#333" />
         <Text style={styles.loadingText}>Uploading photo...</Text>
         <View style={styles.progressBarBg}>
