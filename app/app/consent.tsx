@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { borderRadius as br, colors, fontSize, fontWeight, shadow, spacing } from "../theme/tokens";
 import { router, useNavigation } from "expo-router";
 
 import { consentApi, DEMO_USER_ID } from "../lib/api";
@@ -61,6 +63,7 @@ export default function ConsentScreen() {
   }
 
   return (
+    <SafeAreaView style={{ flex: 1 }}>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -128,51 +131,44 @@ export default function ConsentScreen() {
         )}
       </TouchableOpacity>
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  content: { padding: 20, paddingBottom: 40 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f5f5f5" },
-  heading: { fontSize: 24, fontWeight: "800", marginBottom: 6 },
-  subtitle: { fontSize: 15, color: "#666", marginBottom: 20, lineHeight: 22 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.xl, paddingBottom: spacing.xxl + spacing.sm },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background },
+  heading: { fontSize: fontSize.xxl, fontWeight: fontWeight.extrabold, marginBottom: spacing.xs + 2 },
+  subtitle: { fontSize: fontSize.sm + 1, color: "#666", marginBottom: spacing.xl, lineHeight: 22 },
   card: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 14,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    backgroundColor: colors.surface,
+    borderRadius: br.md,
+    padding: spacing.lg,
+    marginBottom: spacing.sm + 6,
+    ...shadow.sm,
   },
-  cardTitle: { fontSize: 16, fontWeight: "700", marginBottom: 10, color: "#333" },
-  bullet: { fontSize: 14, color: "#2a7", marginBottom: 6, lineHeight: 20 },
-  crossBullet: { fontSize: 14, color: "#c44", marginBottom: 6, lineHeight: 20 },
-  privacyLink: { alignSelf: "flex-start", marginBottom: 20 },
-  privacyLinkText: { fontSize: 14, color: "#555", textDecorationLine: "underline" },
+  cardTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold, marginBottom: spacing.sm, color: colors.accent },
+  bullet: { fontSize: fontSize.sm, color: "#2a7", marginBottom: spacing.xs + 2, lineHeight: 20 },
+  crossBullet: { fontSize: fontSize.sm, color: "#c44", marginBottom: spacing.xs + 2, lineHeight: 20 },
+  privacyLink: { alignSelf: "flex-start", marginBottom: spacing.xl },
+  privacyLinkText: { fontSize: fontSize.sm, color: "#555", textDecorationLine: "underline" },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    backgroundColor: colors.surface,
+    borderRadius: br.md,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+    ...shadow.sm,
   },
-  toggleLabel: { flex: 1, marginLeft: 14, fontSize: 15, color: "#333", lineHeight: 21 },
+  toggleLabel: { flex: 1, marginLeft: spacing.sm + 6, fontSize: fontSize.sm + 1, color: colors.accent, lineHeight: 21 },
   button: {
-    backgroundColor: "#333",
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    padding: spacing.lg,
     alignItems: "center",
   },
-  buttonDisabled: { backgroundColor: "#aaa" },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  buttonDisabled: { backgroundColor: colors.text.muted },
+  buttonText: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.bold },
 });

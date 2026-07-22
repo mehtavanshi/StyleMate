@@ -9,12 +9,14 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 
 import { tryOnApi, TryOnJob } from "../lib/api";
 import { resolvePhotoUrl } from "../lib/constants";
 import { BASE_URL } from "../config/api";
+import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../theme/tokens";
 
 const TRYON_LOADING_MESSAGES = [
   "Fitting the garment...",
@@ -33,6 +35,8 @@ export default function TryOnScreen() {
   const [saved, setSaved] = useState(false);
   const [messageIndex, setMessageIndex] = useState(0);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
+
+  const insets = useSafeAreaInsets();
 
   const messageInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -196,21 +200,25 @@ export default function TryOnScreen() {
   // ── Loading ──
   if (loading) {
     return (
-      <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Generating your virtual try-on">
-        <ActivityIndicator size="large" color="#333" />
-        <Text style={styles.loadingText}>{TRYON_LOADING_MESSAGES[messageIndex]}</Text>
-      </View>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Generating your virtual try-on">
+          <ActivityIndicator size="large" color="#333" />
+          <Text style={styles.loadingText}>{TRYON_LOADING_MESSAGES[messageIndex]}</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (!job) {
     return (
-      <View style={styles.center} accessibilityLabel="No try-on result found">
-        <Text style={styles.errorText}>No try-on result found.</Text>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
-          <Text style={styles.primaryBtnText}>Back to Outfits</Text>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.center} accessibilityLabel="No try-on result found">
+          <Text style={styles.errorText}>No try-on result found.</Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
+            <Text style={styles.primaryBtnText}>Back to Outfits</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -220,56 +228,62 @@ export default function TryOnScreen() {
       ? new Date(job.rate_limit_resets_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       : "midnight";
     return (
-      <View style={styles.center} accessibilityLabel="Daily try-on limit reached">
-        <Text style={styles.errorTitle}>Daily Limit Reached</Text>
-        <Text style={styles.errorText}>
-          {"You've used all your try-ons for today — they'll refresh at " + resetTime + "."}
-        </Text>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
-          <Text style={styles.primaryBtnText}>Back to Outfits</Text>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.center} accessibilityLabel="Daily try-on limit reached">
+          <Text style={styles.errorTitle}>Daily Limit Reached</Text>
+          <Text style={styles.errorText}>
+            {"You've used all your try-ons for today — they'll refresh at " + resetTime + "."}
+          </Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
+            <Text style={styles.primaryBtnText}>Back to Outfits</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
   // ── Bad photo ──
   if (job.error_type === "bad_photo") {
     return (
-      <View style={styles.center} accessibilityLabel="Photo could not be processed">
-        <Text style={styles.errorTitle}>Photo Not Usable</Text>
-        <Text style={styles.errorText}>
-          The provider couldn&apos;t process this photo. Try retaking with even lighting and a plain
-          background.
-        </Text>
-        <TouchableOpacity
-          style={styles.primaryBtn}
-          onPress={() => router.push("/capture")}
-          accessibilityLabel="Retake your photo"
-        >
-          <Text style={styles.primaryBtnText}>Retake Photo</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
-          <Text style={styles.secondaryBtnText}>Back to Outfits</Text>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.center} accessibilityLabel="Photo could not be processed">
+          <Text style={styles.errorTitle}>Photo Not Usable</Text>
+          <Text style={styles.errorText}>
+            The provider couldn&apos;t process this photo. Try retaking with even lighting and a plain
+            background.
+          </Text>
+          <TouchableOpacity
+            style={styles.primaryBtn}
+            onPress={() => router.push("/capture")}
+            accessibilityLabel="Retake your photo"
+          >
+            <Text style={styles.primaryBtnText}>Retake Photo</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
+            <Text style={styles.secondaryBtnText}>Back to Outfits</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
   // ── Failed ──
   if (job.status === "failed") {
     return (
-      <View style={styles.center} accessibilityLabel="Try-on failed">
-        <Text style={styles.errorTitle}>Something Went Wrong</Text>
-        <Text style={styles.errorText}>
-          {job.error_message || "The try-on failed. Please try again."}
-        </Text>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => fetchJob()} accessibilityLabel="Retry try-on">
-          <Text style={styles.primaryBtnText}>Retry</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
-          <Text style={styles.secondaryBtnText}>Back to Outfits</Text>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.center} accessibilityLabel="Try-on failed">
+          <Text style={styles.errorTitle}>Something Went Wrong</Text>
+          <Text style={styles.errorText}>
+            {job.error_message || "The try-on failed. Please try again."}
+          </Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => fetchJob()} accessibilityLabel="Retry try-on">
+            <Text style={styles.primaryBtnText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
+            <Text style={styles.secondaryBtnText}>Back to Outfits</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -279,7 +293,7 @@ export default function TryOnScreen() {
     : undefined;
 
   return (
-    <View style={styles.resultContainer} accessibilityLabel="Virtual try-on result">
+    <SafeAreaView style={[styles.resultContainer, { paddingTop: insets.top }]} accessibilityLabel="Virtual try-on result">
       <View style={styles.resultHeader}>
         <Text style={styles.title} accessibilityRole="header">Virtual Try-On</Text>
         <Text style={styles.subtitle}>Here&apos;s how it looks on you!</Text>
@@ -343,7 +357,7 @@ export default function TryOnScreen() {
       <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
         <Text style={styles.secondaryBtnText}>Back to Outfits</Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -352,38 +366,37 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 30,
-    backgroundColor: "#f5f5f5",
+    padding: spacing.xxl,
+    backgroundColor: colors.background,
   },
-  loadingText: { fontSize: 14, color: "#888", marginTop: 14 },
-  errorTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10, textAlign: "center" },
+  loadingText: { fontSize: fontSize.sm, color: colors.text.tertiary, marginTop: spacing.sm + 6 },
+  errorTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, marginBottom: spacing.sm, textAlign: "center" },
   errorText: {
-    fontSize: 14,
-    color: "#E74C3C",
+    fontSize: fontSize.sm,
+    color: colors.danger,
     textAlign: "center",
-    marginBottom: 20,
+    marginBottom: spacing.xl,
     lineHeight: 22,
-    paddingHorizontal: 20,
+    paddingHorizontal: spacing.xl,
   },
 
   resultContainer: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
-    paddingTop: 60,
+    backgroundColor: colors.background,
   },
   resultHeader: {
-    paddingHorizontal: 20,
-    marginBottom: 10,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.sm,
   },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
-  subtitle: { fontSize: 14, color: "#888" },
+  title: { fontSize: fontSize.xxl - 2, fontWeight: fontWeight.bold, marginBottom: spacing.xs },
+  subtitle: { fontSize: fontSize.sm, color: colors.text.tertiary },
 
   imageWrapper: {
     flex: 1,
-    marginHorizontal: 16,
-    borderRadius: 14,
+    marginHorizontal: spacing.lg,
+    borderRadius: br.md + 4,
     backgroundColor: "#e0e0e0",
-    marginBottom: 10,
+    marginBottom: spacing.sm,
     overflow: "hidden",
   },
   imageScrollContent: {
@@ -395,7 +408,7 @@ const styles = StyleSheet.create({
   resultImage: {
     width: 300,
     height: 400,
-    borderRadius: 14,
+    borderRadius: br.md + 4,
     backgroundColor: "#e0e0e0",
   },
   imagePlaceholder: {
@@ -403,49 +416,49 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#e0e0e0",
   },
-  imagePlaceholderText: { fontSize: 14, color: "#999" },
+  imagePlaceholderText: { fontSize: fontSize.sm, color: colors.text.light },
 
-  meta: { fontSize: 12, color: "#999", textAlign: "center", marginBottom: 14 },
+  meta: { fontSize: fontSize.xs, color: colors.text.light, textAlign: "center", marginBottom: spacing.sm + 6 },
 
   actionsRow: {
     flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 20,
-    marginBottom: 14,
+    gap: spacing.md,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.sm + 6,
   },
   actionBtn: {
     flex: 1,
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: br.md,
+    paddingVertical: spacing.sm + 6,
     alignItems: "center",
     justifyContent: "center",
     minHeight: 48,
   },
-  actionBtnDone: { backgroundColor: "#2ECC71" },
+  actionBtnDone: { backgroundColor: colors.success },
   actionBtnLoading: { opacity: 0.6 },
-  saveBtn: { backgroundColor: "#333" },
-  shareBtn: { backgroundColor: "#fff", borderWidth: 1.5, borderColor: "#333" },
-  actionBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  actionBtnTextDark: { color: "#333", fontSize: 16, fontWeight: "700" },
+  saveBtn: { backgroundColor: colors.accent },
+  shareBtn: { backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.accent },
+  actionBtnText: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  actionBtnTextDark: { color: colors.accent, fontSize: fontSize.base, fontWeight: fontWeight.bold },
 
   primaryBtn: {
-    backgroundColor: "#333",
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    paddingVertical: spacing.sm + 6,
+    paddingHorizontal: spacing.xl,
     alignItems: "center",
     minWidth: 200,
-    marginBottom: 10,
+    marginBottom: spacing.sm,
   },
-  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  primaryBtnText: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.bold },
   secondaryBtn: {
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    borderRadius: br.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
     alignItems: "center",
     minWidth: 200,
-    marginBottom: 20,
+    marginBottom: spacing.xl,
     alignSelf: "center",
   },
-  secondaryBtnText: { color: "#666", fontSize: 15, fontWeight: "600" },
+  secondaryBtnText: { color: "#666", fontSize: fontSize.sm + 1, fontWeight: fontWeight.semibold },
 });

@@ -25,6 +25,7 @@ from urllib.parse import quote_plus
 from sqlalchemy.orm import Session
 
 from app.models import ClothingItem
+from app.shopping_links import build_google_shopping_link, build_meesho_search_link
 from app.pairing_engine import (
     HSL_MAP,
     KNOWN_NEUTRAL_NAMES,
@@ -50,12 +51,12 @@ def _primary_occasion(occasion_tag: str | None) -> str | None:
 
 _MATCHING_CATEGORIES: dict[str, list[str]] = {
     "top": ["bottom", "footwear", "accessory", "outerwear"],
-    "bottom": ["top", "footwear", "accessory", "outerwear"],
+    "bottom": ["top", "accessory", "footwear", "outerwear"],
     "dress": ["footwear", "accessory", "outerwear"],
     "outerwear": ["top", "bottom", "footwear", "accessory"],
     "footwear": ["top", "bottom", "dress", "accessory"],
     "accessory": ["top", "bottom", "dress", "footwear"],
-    "kurti": ["bottom", "footwear", "accessory", "outerwear"],
+    "kurti": ["bottom", "accessory", "footwear", "outerwear"],
 }
 
 # Section label per target category (what to show the user).
@@ -513,6 +514,9 @@ def generate_style_match(item_id: int, db: Session) -> StyleMatchResult:
         if not picks:
             continue
         top = picks[0]
+        links = _build_shop_links(top.name)
+        links.append({"store": "Google Shopping", "url": build_google_shopping_link(top.name)})
+        links.append({"store": "Meesho", "url": build_meesho_search_link(top.name)})
         result.shopping_suggestions.append(
             {
                 "category": cat,
@@ -520,7 +524,7 @@ def generate_style_match(item_id: int, db: Session) -> StyleMatchResult:
                 "match_percentage": top.match_percentage,
                 "reason": top.reason,
                 "owned": False,
-                "shopping_links": _build_shop_links(top.name),
+                "shopping_links": links,
             }
         )
 

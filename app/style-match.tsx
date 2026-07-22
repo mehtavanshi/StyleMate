@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import * as LinkingExpo from "expo-linking";
 import {
@@ -20,6 +21,26 @@ import {
   OccasionOutfit,
 } from "./lib/api";
 import { BASE_URL } from "./config/api";
+import {
+  House,
+  Layers,
+  Palette,
+  Shirt,
+  ShoppingBag,
+  Sparkles,
+  Watch,
+  XCircle,
+  type LucideProps,
+} from "./lib/icons";
+import {
+  borderRadius as br,
+  colors,
+  fontSize,
+  fontWeight,
+  MIN_TOUCH_TARGET,
+  shadow,
+  spacing,
+} from "./theme/tokens";
 
 export default function StyleMatchScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -75,6 +96,7 @@ export default function StyleMatchScreen() {
   const selected = data.selectedItem;
 
   return (
+    <SafeAreaView style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Selected item hero */}
       <View style={styles.hero}>
@@ -100,7 +122,7 @@ export default function StyleMatchScreen() {
       </View>
 
       {/* Already in your wardrobe */}
-      <Section title="🏠 Already In Your Wardrobe">
+      <Section title="Already In Your Wardrobe" icon={House}>
         {data.alreadyOwned.length === 0 ? (
           <Empty text="Nothing else in your wardrobe pairs with this yet." />
         ) : (
@@ -111,28 +133,28 @@ export default function StyleMatchScreen() {
       </Section>
 
       {/* Matching bottoms */}
-      <MatchSection title="👖 Matching Bottoms" items={data.matchingBottoms} />
+      <MatchSection title="Matching Bottoms" icon={Shirt} items={data.matchingBottoms} />
 
       {/* Matching tops */}
-      <MatchSection title="👚 Matching Tops" items={data.matchingTops} />
+      <MatchSection title="Matching Tops" icon={Shirt} items={data.matchingTops} />
 
       {/* Footwear */}
-      <MatchSection title="👟 Footwear" items={data.matchingFootwear} />
+      <MatchSection title="Footwear" icon={Watch} items={data.matchingFootwear} />
 
       {/* Accessories */}
-      <MatchSection title="⌚ Accessories" items={data.matchingAccessories} />
+      <MatchSection title="Accessories" icon={Watch} items={data.matchingAccessories} />
 
       {/* Layering */}
-      <MatchSection title="🧥 Layering" items={data.layeringSuggestions} />
+      <MatchSection title="Layering" icon={Layers} items={data.layeringSuggestions} />
 
       {/* Best color pairings */}
-      <ColorSection title="🎨 Best Color Pairings" colors={data.recommendedColors} good />
+      <ColorSection title="Best Color Pairings" icon={Palette} colors={data.recommendedColors} good />
 
       {/* Avoid colors */}
-      <ColorSection title="❌ Avoid These Colors" colors={data.avoidColors} good={false} />
+      <ColorSection title="Avoid These Colors" icon={XCircle} colors={data.avoidColors} good={false} />
 
       {/* Outfit ideas */}
-      <Section title="✨ Outfit Ideas">
+      <Section title="Outfit Ideas" icon={Sparkles}>
         <View style={styles.chipRow}>
           {data.occasionOutfits.map((o: OccasionOutfit, i) => (
             <View key={`occ-${i}`} style={styles.occasionChip}>
@@ -143,7 +165,7 @@ export default function StyleMatchScreen() {
       </Section>
 
       {/* Shop matching items */}
-      <Section title="🛍 Shop Matching Items">
+      <Section title="Shop Matching Items" icon={ShoppingBag}>
         {data.shoppingSuggestions.map((s: ShoppingSuggestion, i) => (
           <View key={`shop-${i}`} style={styles.shopBlock}>
             <View style={styles.shopHead}>
@@ -168,22 +190,42 @@ export default function StyleMatchScreen() {
         ))}
       </Section>
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ComponentType<LucideProps>;
+  children: React.ReactNode;
+}) {
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text style={styles.sectionTitle}>
+        {Icon && <Icon size={18} strokeWidth={1.5} color={colors.accent} style={{ marginRight: spacing.xs }} />}
+        {title}
+      </Text>
       {children}
     </View>
   );
 }
 
-function MatchSection({ title, items }: { title: string; items: StyleMatchItem[] }) {
+function MatchSection({
+  title,
+  icon,
+  items,
+}: {
+  title: string;
+  icon?: React.ComponentType<LucideProps>;
+  items: StyleMatchItem[];
+}) {
   if (!items || items.length === 0) return null;
   return (
-    <Section title={title}>
+    <Section title={title} icon={icon}>
       {items.map((it, i) => (
         <MatchCard key={`${title}-${i}`} item={it} />
       ))}
@@ -194,10 +236,10 @@ function MatchSection({ title, items }: { title: string; items: StyleMatchItem[]
 function MatchCard({ item, onPress }: { item: StyleMatchItem; onPress?: () => void }) {
   const scoreColor =
     item.match_percentage >= 85
-      ? "#2ECC71"
+      ? colors.score.high
       : item.match_percentage >= 70
-      ? "#E8A317"
-      : "#E74C3C";
+      ? colors.score.mid
+      : colors.score.low;
   return (
     <TouchableOpacity style={styles.matchCard} activeOpacity={0.9} onPress={onPress}>
       <View style={styles.matchInfo}>
@@ -220,23 +262,25 @@ function MatchCard({ item, onPress }: { item: StyleMatchItem; onPress?: () => vo
 
 function ColorSection({
   title,
-  colors,
+  colors: colorList,
   good,
+  icon,
 }: {
   title: string;
   colors: string[];
   good: boolean;
+  icon?: React.ComponentType<LucideProps>;
 }) {
-  if (!colors || colors.length === 0) return null;
+  if (!colorList || colorList.length === 0) return null;
   return (
-    <Section title={title}>
+    <Section title={title} icon={icon}>
       <View style={styles.chipRow}>
-        {colors.map((c, i) => (
+        {colorList.map((c, i) => (
           <View
             key={`col-${i}`}
             style={[
               styles.colorChip,
-              { borderColor: good ? "#2ECC71" : "#E74C3C" },
+              { borderColor: good ? colors.success : colors.danger },
             ]}
           >
             <Text style={styles.colorChipText}>{c}</Text>
@@ -252,92 +296,98 @@ function Empty({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  content: { paddingBottom: 40 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30 },
-  loadingText: { fontSize: 14, color: "#888", marginTop: 10, textAlign: "center" },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { paddingBottom: spacing.xxl + spacing.sm },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl },
+  loadingText: { fontSize: fontSize.sm, color: colors.text.tertiary, marginTop: spacing.sm, textAlign: "center" },
 
-  hero: { alignItems: "center", padding: 20, backgroundColor: "#fff" },
-  heroImage: { width: 140, height: 140, borderRadius: 16, backgroundColor: "#e0e0e0" },
+  hero: { alignItems: "center", padding: spacing.xl, backgroundColor: colors.surface },
+  heroImage: { width: 140, height: 140, borderRadius: br.lg, backgroundColor: "#e0e0e0" },
   heroPlaceholder: { alignItems: "center", justifyContent: "center" },
-  heroInitial: { fontSize: 48, fontWeight: "800", color: "#999" },
-  heroName: { fontSize: 20, fontWeight: "800", marginTop: 12 },
-  heroSub: { fontSize: 13, color: "#888", marginTop: 4, textTransform: "capitalize" },
+  heroInitial: { fontSize: fontSize.display, fontWeight: fontWeight.extrabold, color: colors.text.light },
+  heroName: { fontSize: fontSize.xl, fontWeight: fontWeight.extrabold, marginTop: spacing.md },
+  heroSub: { fontSize: fontSize.xs, color: colors.text.tertiary, marginTop: spacing.xs, textTransform: "capitalize" },
 
   section: {
-    marginTop: 10,
-    backgroundColor: "#fff",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    marginTop: spacing.sm,
+    backgroundColor: colors.surface,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
   },
-  sectionTitle: { fontSize: 16, fontWeight: "700", marginBottom: 10 },
+  sectionTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold, marginBottom: spacing.sm },
 
   matchCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#fafafa",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
+    borderRadius: br.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
     borderWidth: 1,
-    borderColor: "#eee",
+    borderColor: colors.border,
+    minHeight: MIN_TOUCH_TARGET,
+    ...shadow.sm,
   },
-  matchInfo: { flex: 1, marginRight: 10 },
-  matchNameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  matchName: { fontSize: 14, fontWeight: "700", color: "#222" },
-  matchReason: { fontSize: 12, color: "#777", marginTop: 2 },
+  matchInfo: { flex: 1, marginRight: spacing.sm },
+  matchNameRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  matchName: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: colors.text.primary },
+  matchReason: { fontSize: fontSize.xs, color: colors.text.secondary, marginTop: spacing.xs },
   ownedBadge: {
-    backgroundColor: "#2ECC7122",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: colors.success + "22",
+    borderRadius: br.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs - 2,
   },
-  ownedBadgeText: { fontSize: 9, fontWeight: "800", color: "#2ECC71" },
-  scoreBadge: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
-  scoreText: { fontSize: 14, fontWeight: "800" },
+  ownedBadgeText: { fontSize: fontSize.xs - 3, fontWeight: fontWeight.extrabold, color: colors.success },
+  scoreBadge: { borderRadius: br.sm, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs + 2 },
+  scoreText: { fontSize: fontSize.sm, fontWeight: fontWeight.extrabold },
 
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   colorChip: {
-    borderRadius: 16,
+    borderRadius: br.lg,
     borderWidth: 1.5,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: "#fff",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    backgroundColor: colors.surface,
   },
-  colorChipText: { fontSize: 12, fontWeight: "600", color: "#333" },
+  colorChipText: { fontSize: fontSize.xs, fontWeight: fontWeight.semibold, color: colors.accent },
 
   occasionChip: {
-    backgroundColor: "#333",
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    backgroundColor: colors.accent,
+    borderRadius: br.lg,
+    paddingHorizontal: spacing.sm + 6,
+    paddingVertical: spacing.sm,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: "center",
   },
-  occasionChipText: { fontSize: 13, fontWeight: "600", color: "#fff" },
+  occasionChipText: { fontSize: fontSize.xs + 1, fontWeight: fontWeight.semibold, color: colors.text.white },
 
-  empty: { fontSize: 13, color: "#aaa", fontStyle: "italic" },
+  empty: { fontSize: fontSize.xs + 1, color: colors.text.muted, fontStyle: "italic" },
 
   shopBlock: {
     backgroundColor: "#fafafa",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
+    borderRadius: br.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm + 2,
     borderWidth: 1,
-    borderColor: "#eee",
+    borderColor: colors.border,
   },
   shopHead: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  shopName: { fontSize: 14, fontWeight: "700", color: "#222" },
-  shopPct: { fontSize: 12, fontWeight: "700", color: "#2ECC71" },
-  shopReason: { fontSize: 12, color: "#777", marginTop: 4, marginBottom: 10 },
-  storeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  shopName: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: colors.text.primary },
+  shopPct: { fontSize: fontSize.xs, fontWeight: fontWeight.bold, color: colors.success },
+  shopReason: { fontSize: fontSize.xs, color: colors.text.secondary, marginTop: spacing.xs, marginBottom: spacing.sm + 2 },
+  storeRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   storeBtn: {
-    backgroundColor: "#333",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: colors.accent,
+    borderRadius: br.sm + 2,
+    paddingHorizontal: spacing.md,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  storeBtnText: { fontSize: 12, fontWeight: "600", color: "#fff" },
+  storeBtnText: { fontSize: fontSize.xs, fontWeight: fontWeight.semibold, color: colors.text.white },
 });

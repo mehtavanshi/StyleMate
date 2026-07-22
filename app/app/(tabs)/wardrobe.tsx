@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../../theme/tokens";
 import { router, useFocusEffect } from "expo-router";
 import { clothingApi, ClothingItem } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
@@ -148,7 +150,7 @@ export default function WardrobeScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.filterBar}>
         {renderChipRow("Category", CATEGORIES, selectedCategories, setSelectedCategories)}
         {renderChipRow("Occasion", OCCASIONS, selectedOccasions, setSelectedOccasions)}
@@ -181,55 +183,55 @@ export default function WardrobeScreen() {
           renderItem={renderItem}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
-  loadingText: { fontSize: 15, color: "#888" },
+  container: { flex: 1, backgroundColor: colors.background },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
+  loadingText: { fontSize: fontSize.sm + 1, color: colors.text.tertiary },
 
   // Filter bar
-  filterBar: { backgroundColor: "#fff", paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "#eee" },
-  filterSection: { paddingTop: 10 },
-  filterLabel: { fontSize: 12, fontWeight: "700", color: "#999", textTransform: "uppercase", paddingHorizontal: 16, marginBottom: 6 },
-  chipList: { paddingHorizontal: 12 },
-  chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: "#e8e8e8", marginRight: 8 },
-  chipActive: { backgroundColor: "#333" },
-  chipText: { fontSize: 13, color: "#666", textTransform: "capitalize" },
-  chipTextActive: { color: "#fff" },
-  clearBtn: { alignSelf: "center", marginTop: 6, paddingVertical: 4, paddingHorizontal: 12 },
-  clearBtnText: { fontSize: 13, color: "#E74C3C", fontWeight: "600" },
+  filterBar: { backgroundColor: colors.surface, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  filterSection: { paddingTop: spacing.sm + 2 },
+  filterLabel: { fontSize: fontSize.xs, fontWeight: fontWeight.bold, color: colors.text.light, textTransform: "uppercase", paddingHorizontal: spacing.lg, marginBottom: spacing.xs + 2 },
+  chipList: { paddingHorizontal: spacing.md },
+  chip: { paddingHorizontal: spacing.sm + 6, paddingVertical: spacing.xs + 3, borderRadius: 20, backgroundColor: "#e8e8e8", marginRight: spacing.sm },
+  chipActive: { backgroundColor: colors.accent },
+  chipText: { fontSize: fontSize.xs + 1, color: "#666", textTransform: "capitalize" },
+  chipTextActive: { color: colors.text.white },
+  clearBtn: { alignSelf: "center", marginTop: spacing.xs + 2, paddingVertical: spacing.xs, paddingHorizontal: spacing.md },
+  clearBtnText: { fontSize: fontSize.xs + 1, color: colors.danger, fontWeight: fontWeight.semibold },
 
   // Grid
-  gridContainer: { padding: 8 },
-  gridRow: { justifyContent: "space-between", marginBottom: 8 },
+  gridContainer: { padding: spacing.sm },
+  gridRow: { justifyContent: "space-between", marginBottom: spacing.sm },
   gridCell: {
     flex: 1,
-    marginHorizontal: 4,
-    borderRadius: 12,
+    marginHorizontal: spacing.xs,
+    borderRadius: br.md,
     overflow: "hidden",
     backgroundColor: "#ddd",
     aspectRatio: 3 / 4,
   },
   gridImage: { width: "100%", height: "100%" },
   gridImagePlaceholder: { alignItems: "center", justifyContent: "center" },
-  placeholderText: { fontSize: 32, fontWeight: "700", color: "#999" },
-  gridBadge: { position: "absolute", top: 8, left: 8, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  gridBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
+  placeholderText: { fontSize: fontSize.xxxl, fontWeight: fontWeight.bold, color: colors.text.light },
+  gridBadge: { position: "absolute", top: spacing.sm, left: spacing.sm, borderRadius: br.sm, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs - 1 },
+  gridBadgeText: { color: colors.text.white, fontSize: fontSize.xs - 2, fontWeight: fontWeight.bold, textTransform: "uppercase" },
   gridOverlay: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     backgroundColor: "rgba(0,0,0,0.45)",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.sm,
   },
-  gridName: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  gridName: { color: colors.text.white, fontSize: fontSize.xs + 1, fontWeight: fontWeight.semibold },
 
   // Empty state
-  emptyTitle: { fontSize: 18, fontWeight: "600", marginBottom: 6 },
-  emptyText: { fontSize: 14, color: "#888", textAlign: "center" },
+  emptyTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, marginBottom: spacing.xs + 2 },
+  emptyText: { fontSize: fontSize.sm, color: colors.text.tertiary, textAlign: "center" },
 });

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
+from app.matching_service import complete_outfit, suggest_matches
 from app.models import ClothingItem
 from app.schemas import ClothingItemCreate, ClothingItemUpdate, ClothingItemResponse
 from app.style_embeddings import compute_and_store_embedding
@@ -81,3 +82,18 @@ def delete_item(item_id: int, db: Session = Depends(get_db)):
     db.delete(item)
     db.commit()
     return {"detail": "Item deleted"}
+
+
+@router.get("/{item_id}/suggestions")
+def item_suggestions(
+    item_id: int,
+    category: str,
+    limit: int = 10,
+    db: Session = Depends(get_db),
+):
+    return suggest_matches(item_id, category, db, limit=limit)
+
+
+@router.get("/{item_id}/complete-outfit")
+def item_complete_outfit(item_id: int, db: Session = Depends(get_db)):
+    return complete_outfit(item_id, db)

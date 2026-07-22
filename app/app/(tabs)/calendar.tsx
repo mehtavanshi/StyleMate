@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Calendar, DateData } from "react-native-calendars";
 import { useFocusEffect } from "expo-router";
 import {
@@ -20,6 +21,8 @@ import {
   OutfitSuggestion,
 } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
+import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../../theme/tokens";
+import { Star } from "../../lib/icons";
 
 const OCCASIONS = [
   "casual",
@@ -218,7 +221,7 @@ export default function CalendarScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {loading ? (
         <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Loading calendar">
           <ActivityIndicator size="large" color="#333" />
@@ -354,9 +357,12 @@ export default function CalendarScreen() {
                         {sug.reason}
                       </Text>
                       <View style={styles.suggestionFooter}>
-                        <Text style={styles.suggestionScore}>
-                          ★ {sug.score.toFixed(2)}
-                        </Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                          <Star size={14} color="#E8A317" strokeWidth={1.5} fill="#E8A317" />
+                          <Text style={styles.suggestionScore}>
+                            {sug.score.toFixed(2)}
+                          </Text>
+                        </View>
                       </View>
                       <TouchableOpacity
                         style={[
@@ -387,28 +393,28 @@ export default function CalendarScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  container: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  loadingText: { fontSize: 14, color: "#888", marginTop: 10 },
+  loadingText: { fontSize: fontSize.sm, color: colors.text.tertiary, marginTop: spacing.sm },
 
   // Legend
   legend: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: 20,
-    paddingVertical: 12,
-    backgroundColor: "#fff",
+    gap: spacing.xl,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: "#eee",
+    borderTopColor: colors.border,
   },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendLabel: { fontSize: 12, color: "#888" },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: spacing.xs + 2 },
+  legendDot: { width: 8, height: 8, borderRadius: spacing.xs },
+  legendLabel: { fontSize: fontSize.xs, color: colors.text.tertiary },
 
   // Sheet overlay
   sheetOverlay: {
@@ -417,120 +423,120 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   sheetContent: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: spacing.xl - 4,
+    borderTopRightRadius: spacing.xl - 4,
     maxHeight: "80%",
-    paddingBottom: 30,
+    paddingBottom: spacing.xxl - 2,
   },
   sheetHandle: {
     width: 36,
     height: 4,
-    borderRadius: 2,
+    borderRadius: spacing.xs - 2,
     backgroundColor: "#ddd",
     alignSelf: "center",
-    marginTop: 10,
-    marginBottom: 14,
+    marginTop: spacing.sm + 2,
+    marginBottom: spacing.sm + 6,
   },
   sheetHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    marginBottom: 14,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.sm + 6,
   },
-  sheetDate: { fontSize: 18, fontWeight: "700", color: "#333" },
+  sheetDate: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: colors.accent },
   lockedBadge: {
-    backgroundColor: "#2ECC7122",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    backgroundColor: colors.success + "22",
+    borderRadius: br.sm,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.xs,
   },
-  lockedBadgeText: { color: "#2ECC71", fontSize: 12, fontWeight: "600" },
+  lockedBadgeText: { color: colors.success, fontSize: fontSize.xs, fontWeight: fontWeight.semibold },
 
   // Section
   sectionLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#888",
-    paddingHorizontal: 20,
-    marginBottom: 8,
-    marginTop: 6,
+    fontSize: fontSize.xs + 1,
+    fontWeight: fontWeight.semibold,
+    color: colors.text.tertiary,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.sm,
+    marginTop: spacing.xs + 2,
   },
 
   // Chips
-  chipRow: { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
+  chipRow: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.sm },
   chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: spacing.sm + 6,
+    paddingVertical: spacing.xs + 3,
     borderRadius: 20,
     backgroundColor: "#e8e8e8",
   },
-  chipActive: { backgroundColor: "#333" },
-  chipText: { fontSize: 13, color: "#666", textTransform: "capitalize" },
-  chipTextActive: { color: "#fff" },
+  chipActive: { backgroundColor: colors.accent },
+  chipText: { fontSize: fontSize.xs + 1, color: "#666", textTransform: "capitalize" },
+  chipTextActive: { color: colors.text.white },
 
   // Suggestions
-  suggestionRow: { paddingHorizontal: 16, gap: 12 },
+  suggestionRow: { paddingHorizontal: spacing.lg, gap: spacing.md },
   sheetCenter: { height: 80, alignItems: "center", justifyContent: "center" },
-  emptyText: { fontSize: 14, color: "#888" },
+  emptyText: { fontSize: fontSize.sm, color: colors.text.tertiary },
 
   // Suggestion card
   suggestionCard: {
     width: 200,
     backgroundColor: "#f9f9f9",
-    borderRadius: 12,
+    borderRadius: br.md,
     overflow: "hidden",
     borderWidth: 2,
     borderColor: "transparent",
   },
-  suggestionCardLocked: { borderColor: "#2ECC71", backgroundColor: "#f0faf4" },
-  suggestionThumbs: { flexDirection: "row", padding: 8, gap: 6 },
+  suggestionCardLocked: { borderColor: colors.success, backgroundColor: "#f0faf4" },
+  suggestionThumbs: { flexDirection: "row", padding: spacing.sm, gap: spacing.xs + 2 },
   suggestionReason: {
-    fontSize: 12,
+    fontSize: fontSize.xs,
     color: "#666",
     fontStyle: "italic",
-    paddingHorizontal: 10,
-    marginBottom: 4,
+    paddingHorizontal: spacing.sm + 2,
+    marginBottom: spacing.xs,
   },
   suggestionFooter: {
-    paddingHorizontal: 10,
-    paddingBottom: 8,
+    paddingHorizontal: spacing.sm + 2,
+    paddingBottom: spacing.sm,
   },
-  suggestionScore: { fontSize: 13, fontWeight: "700", color: "#333" },
+  suggestionScore: { fontSize: fontSize.xs + 1, fontWeight: fontWeight.bold, color: colors.accent },
 
   // Lock button
   lockBtn: {
-    backgroundColor: "#333",
-    paddingVertical: 10,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.sm + 2,
     alignItems: "center",
   },
   lockBtnDone: { backgroundColor: "#e0e0e0" },
-  lockBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
-  lockBtnTextDone: { color: "#888" },
+  lockBtnText: { color: colors.text.white, fontSize: fontSize.xs + 1, fontWeight: fontWeight.semibold },
+  lockBtnTextDone: { color: colors.text.tertiary },
 
   // Outfit thumb (inside sheet)
-  outfitThumb: { position: "relative", borderRadius: 6, overflow: "hidden" },
+  outfitThumb: { position: "relative", borderRadius: br.sm, overflow: "hidden" },
   outfitThumbImg: {
     width: 50,
     height: 50,
-    borderRadius: 6,
+    borderRadius: br.sm,
     backgroundColor: "#e0e0e0",
   },
   outfitThumbPlaceholder: { alignItems: "center", justifyContent: "center" },
-  outfitThumbInitial: { fontSize: 16, fontWeight: "700" },
+  outfitThumbInitial: { fontSize: fontSize.base, fontWeight: fontWeight.bold },
   outfitThumbBadge: {
     position: "absolute",
     bottom: 2,
     left: 2,
-    borderRadius: 3,
-    paddingHorizontal: 4,
+    borderRadius: spacing.xs - 1,
+    paddingHorizontal: spacing.xs,
     paddingVertical: 1,
   },
   outfitThumbBadgeText: {
-    color: "#fff",
+    color: colors.text.white,
     fontSize: 7,
-    fontWeight: "700",
+    fontWeight: fontWeight.bold,
     textTransform: "uppercase",
   },
 });

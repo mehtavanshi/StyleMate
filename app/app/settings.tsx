@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../theme/tokens";
 import { router, useNavigation } from "expo-router";
 
 import { BASE_URL } from "../config/api";
@@ -72,6 +74,7 @@ export default function SettingsScreen() {
   }
 
   return (
+    <SafeAreaView style={{ flex: 1 }}>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -141,32 +144,33 @@ export default function SettingsScreen() {
         <Text style={styles.linkButtonText}>Privacy policy</Text>
       </TouchableOpacity>
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  content: { padding: 20, paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.xl, paddingBottom: spacing.xxl + spacing.sm },
   centered: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#f5f5f5",
+    backgroundColor: colors.background,
   },
-  heading: { fontSize: 26, fontWeight: "800", marginBottom: 20 },
+  heading: { fontSize: fontSize.xxl + 2, fontWeight: fontWeight.extrabold, marginBottom: spacing.xl },
   sectionLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#999",
+    fontSize: fontSize.xs + 1,
+    fontWeight: fontWeight.bold,
+    color: colors.text.light,
     textTransform: "uppercase",
     letterSpacing: 1,
-    marginBottom: 10,
+    marginBottom: spacing.sm,
   },
-  sectionSpacer: { height: 24 },
+  sectionSpacer: { height: spacing.xl },
   photoPreviewWrap: {
     width: "100%",
-    marginBottom: 10,
-    borderRadius: 12,
+    marginBottom: spacing.sm,
+    borderRadius: br.md,
     overflow: "hidden",
     backgroundColor: "#e0e0e0",
   },
@@ -176,18 +180,18 @@ const styles = StyleSheet.create({
   },
   linkButton: {
     width: "100%",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginBottom: 8,
+    backgroundColor: colors.surface,
+    borderRadius: br.md,
+    paddingVertical: spacing.sm + 6,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#e0e0e0",
   },
-  linkButtonPrimary: { backgroundColor: "#333", borderColor: "#333" },
-  linkButtonText: { fontSize: 15, color: "#333", fontWeight: "600" },
-  linkButtonTextPrimary: { fontSize: 15, color: "#fff", fontWeight: "700" },
+  linkButtonPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
+  linkButtonText: { fontSize: fontSize.sm + 1, color: colors.accent, fontWeight: fontWeight.semibold },
+  linkButtonTextPrimary: { fontSize: fontSize.sm + 1, color: colors.text.white, fontWeight: fontWeight.bold },
   deleteButton: { borderColor: "#c00" },
-  deleteButtonText: { fontSize: 15, color: "#c00", fontWeight: "600" },
+  deleteButtonText: { fontSize: fontSize.sm + 1, color: "#c00", fontWeight: fontWeight.semibold },
 });

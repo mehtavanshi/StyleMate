@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import * as Linking from "expo-linking";
 import {
@@ -30,6 +31,14 @@ import {
 } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
 import TryOnUsageBadge from "../../components/TryOnUsageBadge";
+import {
+  RefreshCw,
+  Sparkles,
+  Star,
+  ThumbsDown,
+  ThumbsUp,
+} from "../../lib/icons";
+import { spacing, fontSize, fontWeight, borderRadius as br, colors, shadow } from "../../theme/tokens";
 
 const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"];
 const TARGET_GENDERS = ["unisex", "men", "women"];
@@ -428,7 +437,7 @@ export default function OutfitSuggestionsScreen() {
     try {
       await feedbackApi.create(itemIds, liked);
       setFeedbackGiven((g) => ({ ...g, [key]: true }));
-      showToast(liked ? "Liked outfit 👍" : "Noted — outfit disliked 👎");
+      showToast(liked ? "Liked outfit" : "Noted — outfit disliked");
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally {
@@ -465,9 +474,12 @@ export default function OutfitSuggestionsScreen() {
         <View style={styles.cardFooter}>
           <Text style={styles.reasonText}>{item.reason}</Text>
           <View style={[styles.scoreBadge, { backgroundColor: scoreColor(item.score) + "22" }]}>
-            <Text style={[styles.scoreText, { color: scoreColor(item.score) }]}>
-              ★ {item.score.toFixed(2)}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+              <Star size={14} color={scoreColor(item.score)} strokeWidth={1.5} fill={scoreColor(item.score)} />
+              <Text style={[styles.scoreText, { color: scoreColor(item.score) }]}>
+                {item.score.toFixed(2)}
+              </Text>
+            </View>
           </View>
         </View>
         <BreakdownBar breakdown={item.breakdown || {}} />
@@ -479,18 +491,24 @@ export default function OutfitSuggestionsScreen() {
             disabled={given || pending}
             onPress={() => submitFeedback(key, itemIds, true)}
           >
-            <Text style={[styles.feedbackBtnText, given && styles.feedbackBtnTextDone]}>
-              {given ? "👍 Saved" : "👍 Like"}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <ThumbsUp size={16} color={given ? "#999" : "#333"} strokeWidth={1.5} />
+              <Text style={[styles.feedbackBtnText, given && styles.feedbackBtnTextDone]}>
+                {given ? "Saved" : "Like"}
+              </Text>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.feedbackBtn, styles.feedbackBtnDislike, given && styles.feedbackBtnDisabled]}
             disabled={given || pending}
             onPress={() => submitFeedback(key, itemIds, false)}
           >
-            <Text style={[styles.feedbackBtnText, given && styles.feedbackBtnTextDone]}>
-              {given ? "👎 Saved" : "👎 Dislike"}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <ThumbsDown size={16} color={given ? "#999" : "#333"} strokeWidth={1.5} />
+              <Text style={[styles.feedbackBtnText, given && styles.feedbackBtnTextDone]}>
+                {given ? "Saved" : "Dislike"}
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -501,7 +519,10 @@ export default function OutfitSuggestionsScreen() {
                 style={[styles.tryonBtn, styles.tryonBtnDisabled]}
                 onPress={() => router.push("/capture")}
               >
-                <Text style={styles.tryonBtnText}>✨ Try It On</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Sparkles size={16} color="#fff" strokeWidth={1.5} />
+                  <Text style={styles.tryonBtnText}>Try It On</Text>
+                </View>
               </TouchableOpacity>
               <Text style={styles.tryonSubtext}>Upload a photo first to try on outfits</Text>
             </View>
@@ -514,13 +535,16 @@ export default function OutfitSuggestionsScreen() {
                   if (itemIds.length > 0) startTryOn(key, itemIds);
                 }}
               >
-                <Text style={styles.tryonBtnText}>
-                  {tryOnState.status === "loading"
-                    ? "Starting..."
-                    : tryOnState.status === "processing"
-                    ? "Processing..."
-                    : "✨ Try It On"}
-                </Text>
+                {tryOnState.status === "loading" || tryOnState.status === "processing" ? (
+                  <Text style={styles.tryonBtnText}>
+                    {tryOnState.status === "loading" ? "Starting..." : "Processing..."}
+                  </Text>
+                ) : (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Sparkles size={16} color="#fff" strokeWidth={1.5} />
+                    <Text style={styles.tryonBtnText}>Try It On</Text>
+                  </View>
+                )}
               </TouchableOpacity>
               {tryOnState.status === "failed" && tryOnState.error && (
                 <View style={styles.tryonErrorBox} accessibilityLabel={`Try-on error: ${tryOnState.error.message}`}>
@@ -608,12 +632,15 @@ export default function OutfitSuggestionsScreen() {
   };
 
   return (
-    <View style={styles.container} accessibilityRole="none">
+    <SafeAreaView style={styles.container} accessibilityRole="none">
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title} accessibilityRole="header">Outfit Suggestions</Text>
         <TouchableOpacity style={styles.refreshBtn} onPress={loadSuggestions} accessibilityLabel="Refresh outfit suggestions">
-          <Text style={styles.refreshBtnText}>↻ Refresh</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <RefreshCw size={18} color="#333" strokeWidth={1.5} />
+            <Text style={styles.refreshBtnText}>Refresh</Text>
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -694,176 +721,171 @@ export default function OutfitSuggestionsScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30 },
-  loadingText: { fontSize: 14, color: "#888", marginTop: 10 },
+  container: { flex: 1, backgroundColor: colors.background },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl },
+  loadingText: { fontSize: fontSize.sm, color: colors.text.tertiary, marginTop: spacing.sm + 2 },
 
   // Header
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "#fff",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: "700" },
+  title: { fontSize: fontSize.xl, fontWeight: fontWeight.bold },
   refreshBtn: {
-    backgroundColor: "#333",
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    backgroundColor: colors.accent,
+    borderRadius: br.sm + 2,
+    paddingHorizontal: spacing.sm + 6,
+    paddingVertical: spacing.sm,
   },
-  refreshBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  refreshBtnText: { color: colors.text.white, fontSize: fontSize.sm, fontWeight: fontWeight.semibold },
 
   // Chips
-  chipBar: { backgroundColor: "#fff", paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: "#eee" },
-  chipList: { paddingHorizontal: 12, paddingTop: 10 },
-  chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: "#e8e8e8", marginRight: 8 },
-  chipActive: { backgroundColor: "#333" },
-  chipText: { fontSize: 13, color: "#666", textTransform: "capitalize" },
-  chipTextActive: { color: "#fff" },
+  chipBar: { backgroundColor: colors.surface, paddingBottom: spacing.sm + 2, borderBottomWidth: 1, borderBottomColor: colors.border },
+  chipList: { paddingHorizontal: spacing.md, paddingTop: spacing.sm + 2 },
+  chip: { paddingHorizontal: spacing.sm + 6, paddingVertical: spacing.xs + 3, borderRadius: 20, backgroundColor: "#e8e8e8", marginRight: spacing.sm },
+  chipActive: { backgroundColor: colors.accent },
+  chipText: { fontSize: fontSize.xs + 1, color: "#666", textTransform: "capitalize" },
+  chipTextActive: { color: colors.text.white },
 
   // List
-  list: { padding: 12 },
+  list: { padding: spacing.md },
 
   // Card
   card: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: br.lg - 2,
     overflow: "hidden",
-    marginBottom: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 3,
+    marginBottom: spacing.sm + 6,
+    ...shadow.md,
   },
   cardFeedbackGiven: { opacity: 0.6 },
   feedbackRow: {
     flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-    paddingTop: 6,
+    gap: spacing.sm + 2,
+    paddingHorizontal: spacing.sm + 6,
+    paddingBottom: spacing.sm + 6,
+    paddingTop: spacing.xs + 2,
   },
   feedbackBtn: {
     flex: 1,
-    backgroundColor: "#2ECC7155",
-    borderRadius: 10,
-    paddingVertical: 10,
+    backgroundColor: colors.success + "55",
+    borderRadius: br.md,
+    paddingVertical: spacing.sm + 2,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#2ECC71",
+    borderColor: colors.success,
   },
   feedbackBtnDislike: {
-    backgroundColor: "#E74C3C33",
-    borderColor: "#E74C3C",
+    backgroundColor: colors.danger + "33",
+    borderColor: colors.danger,
   },
   feedbackBtnDisabled: {
     backgroundColor: "#eeeeee",
     borderColor: "#cccccc",
   },
-  feedbackBtnText: { fontSize: 14, fontWeight: "700", color: "#1c1c1c" },
-  feedbackBtnTextDone: { color: "#999" },
+  feedbackBtnText: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: "#1c1c1c" },
+  feedbackBtnTextDone: { color: colors.text.light },
 
   // Toast
   toastWrap: {
     flex: 1,
     justifyContent: "flex-end",
     alignItems: "center",
-    paddingBottom: 40,
+    paddingBottom: spacing.xxl + spacing.sm,
     backgroundColor: "transparent",
   },
   toastBox: {
     backgroundColor: "rgba(0,0,0,0.82)",
-    borderRadius: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    borderRadius: br.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
     maxWidth: "85%",
   },
-  toastText: { color: "#fff", fontSize: 14, fontWeight: "600", textAlign: "center" },
+  toastText: { color: colors.text.white, fontSize: fontSize.sm, fontWeight: fontWeight.semibold, textAlign: "center" },
   cardImages: {
     flexDirection: "row",
-    padding: 10,
-    gap: 10,
+    padding: spacing.sm + 2,
+    gap: spacing.sm + 2,
   },
   thumbOuter: { flex: 1 },
-  thumbWrap: { position: "relative", borderRadius: 10, overflow: "hidden" },
-  thumbImage: { width: "100%", aspectRatio: 1, borderRadius: 10, backgroundColor: "#e0e0e0" },
+  thumbWrap: { position: "relative", borderRadius: br.md, overflow: "hidden" },
+  thumbImage: { width: "100%", aspectRatio: 1, borderRadius: br.md, backgroundColor: "#e0e0e0" },
   thumbPlaceholder: { alignItems: "center", justifyContent: "center" },
-  thumbInitial: { fontSize: 24, fontWeight: "700" },
+  thumbInitial: { fontSize: fontSize.xxl, fontWeight: fontWeight.bold },
   thumbBadge: {
     position: "absolute",
-    top: 6,
-    left: 6,
-    borderRadius: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    top: spacing.xs + 2,
+    left: spacing.xs + 2,
+    borderRadius: br.sm - 1,
+    paddingHorizontal: spacing.xs + 2,
+    paddingVertical: spacing.xs - 2,
   },
-  thumbBadgeText: { color: "#fff", fontSize: 9, fontWeight: "700", textTransform: "uppercase" },
+  thumbBadgeText: { color: colors.text.white, fontSize: 9, fontWeight: fontWeight.bold, textTransform: "uppercase" },
   attrBadge: {
     position: "absolute",
-    left: 6,
-    borderRadius: 4,
+    left: spacing.xs + 2,
+    borderRadius: spacing.xs,
     paddingHorizontal: 5,
     paddingVertical: 1,
   },
-  attrBadgeText: { color: "#fff", fontSize: 8, fontWeight: "600", textTransform: "uppercase" },
+  attrBadgeText: { color: colors.text.white, fontSize: 8, fontWeight: fontWeight.semibold, textTransform: "uppercase" },
   thumbOverlay: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     backgroundColor: "rgba(0,0,0,0.4)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderBottomLeftRadius: 10,
-    borderBottomRightRadius: 10,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderBottomLeftRadius: br.md,
+    borderBottomRightRadius: br.md,
   },
-  thumbName: { color: "#fff", fontSize: 11, fontWeight: "600" },
+  thumbName: { color: colors.text.white, fontSize: 11, fontWeight: fontWeight.semibold },
 
   // Card footer
   cardFooter: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: spacing.sm + 6,
+    paddingVertical: spacing.md,
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
   },
-  reasonText: { flex: 1, fontSize: 13, color: "#666", fontStyle: "italic", marginRight: 10 },
-  scoreBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
-  scoreText: { fontSize: 13, fontWeight: "700" },
+  reasonText: { flex: 1, fontSize: fontSize.xs + 1, color: "#666", fontStyle: "italic", marginRight: spacing.sm + 2 },
+  scoreBadge: { borderRadius: br.sm + 2, paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs },
+  scoreText: { fontSize: fontSize.xs + 1, fontWeight: fontWeight.bold },
 
   // Empty
-  emptyTitle: { fontSize: 18, fontWeight: "600", marginBottom: 8 },
-  emptyText: { fontSize: 14, color: "#888", textAlign: "center", lineHeight: 22 },
+  emptyTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, marginBottom: spacing.sm },
+  emptyText: { fontSize: fontSize.sm, color: colors.text.tertiary, textAlign: "center", lineHeight: 22 },
 
-  // Breakdown
-  // Try On
+  // Try on
   tryonRow: {
-    paddingHorizontal: 14,
-    paddingBottom: 14,
+    paddingHorizontal: spacing.sm + 6,
+    paddingBottom: spacing.sm + 6,
   },
   tryonBtn: {
-    backgroundColor: "#333",
-    borderRadius: 10,
-    paddingVertical: 12,
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    paddingVertical: spacing.md,
     alignItems: "center",
   },
   tryonBtnText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
+    color: colors.text.white,
+    fontSize: fontSize.sm + 1,
+    fontWeight: fontWeight.bold,
   },
   tryonBtnDisabled: {
     backgroundColor: "#bbb",
@@ -872,51 +894,51 @@ const styles = StyleSheet.create({
     backgroundColor: "#666",
   },
   tryonSubtext: {
-    fontSize: 12,
-    color: "#888",
-    marginTop: 6,
+    fontSize: fontSize.xs,
+    color: colors.text.tertiary,
+    marginTop: spacing.xs + 2,
     textAlign: "center",
   },
   tryonOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.55)",
-    borderRadius: 10,
+    borderRadius: br.md,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: spacing.sm,
   },
   tryonOverlayText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "600",
+    color: colors.text.white,
+    fontSize: fontSize.xs + 1,
+    fontWeight: fontWeight.semibold,
   },
   tryonErrorBox: {
     backgroundColor: "#FFF0F0",
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 8,
+    borderRadius: br.sm + 2,
+    padding: spacing.sm + 2,
+    marginTop: spacing.sm,
     borderWidth: 1,
-    borderColor: "#E74C3C33",
+    borderColor: colors.danger + "33",
   },
   tryonErrorText: {
-    fontSize: 12,
+    fontSize: fontSize.xs,
     color: "#C0392B",
-    marginBottom: 4,
+    marginBottom: spacing.xs,
     lineHeight: 18,
   },
   tryonErrorAction: {
-    fontSize: 13,
-    color: "#E74C3C",
-    fontWeight: "700",
+    fontSize: fontSize.xs + 1,
+    color: colors.danger,
+    fontWeight: fontWeight.bold,
     textDecorationLine: "underline",
   },
 
   breakdownRow: {
     flexDirection: "row",
-    height: 4,
-    marginHorizontal: 14,
-    marginBottom: 6,
-    borderRadius: 2,
+    height: spacing.xs,
+    marginHorizontal: spacing.sm + 6,
+    marginBottom: spacing.xs + 2,
+    borderRadius: spacing.xs - 2,
     overflow: "hidden",
     backgroundColor: "#eee",
   },
@@ -926,100 +948,100 @@ const styles = StyleSheet.create({
   legendRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    paddingHorizontal: 14,
-    paddingBottom: 10,
-    gap: 8,
+    paddingHorizontal: spacing.sm + 6,
+    paddingBottom: spacing.sm + 2,
+    gap: spacing.sm,
   },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 3 },
-  legendDot: { width: 6, height: 6, borderRadius: 3 },
-  legendLabel: { fontSize: 10, color: "#888", textTransform: "capitalize" },
-  legendValue: { fontSize: 10, color: "#555", fontWeight: "600" },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: spacing.xs - 1 },
+  legendDot: { width: spacing.xs + 2, height: spacing.xs + 2, borderRadius: spacing.xs - 1 },
+  legendLabel: { fontSize: fontSize.xs - 2, color: colors.text.tertiary, textTransform: "capitalize" },
+  legendValue: { fontSize: fontSize.xs - 2, color: "#555", fontWeight: fontWeight.semibold },
 
   // Complete the Look
   shoppingSection: {
-    backgroundColor: "#fff",
-    marginTop: 6,
-    paddingVertical: 14,
+    backgroundColor: colors.surface,
+    marginTop: spacing.xs + 2,
+    paddingVertical: spacing.sm + 6,
     borderTopWidth: 1,
-    borderTopColor: "#eee",
+    borderTopColor: colors.border,
   },
   shoppingHeading: {
-    fontSize: 17,
-    fontWeight: "700",
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    fontSize: fontSize.base + 1,
+    fontWeight: fontWeight.bold,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
   },
-  shoppingRow: { paddingHorizontal: 16, gap: 12 },
+  shoppingRow: { paddingHorizontal: spacing.lg, gap: spacing.md },
   shoppingEmpty: {
-    fontSize: 14,
-    color: "#888",
-    paddingHorizontal: 16,
+    fontSize: fontSize.sm,
+    color: colors.text.tertiary,
+    paddingHorizontal: spacing.lg,
     lineHeight: 22,
   },
   gapBlock: { marginBottom: 18 },
   gapReason: {
-    fontSize: 13,
+    fontSize: fontSize.xs + 1,
     color: "#444",
     fontStyle: "italic",
-    paddingHorizontal: 16,
-    marginBottom: 10,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm + 2,
   },
   gapNoProducts: {
-    fontSize: 13,
-    color: "#aaa",
-    paddingHorizontal: 16,
+    fontSize: fontSize.xs + 1,
+    color: colors.text.muted,
+    paddingHorizontal: spacing.lg,
   },
   productCard: {
     width: 140,
-    backgroundColor: "#fff",
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: br.md,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#eee",
-    padding: 8,
+    borderColor: colors.border,
+    padding: spacing.sm,
   },
   meeshoButton: {
     width: 160,
-    backgroundColor: "#fff",
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: br.md,
     borderWidth: 1.5,
     borderColor: "#E5408A",
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+    paddingVertical: spacing.sm + 6,
+    paddingHorizontal: spacing.md,
     alignItems: "center",
     justifyContent: "center",
   },
   meeshoButtonText: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: fontSize.xs + 1,
+    fontWeight: fontWeight.bold,
     color: "#E5408A",
     textAlign: "center",
   },
   meeshoButtonSub: {
     fontSize: 11,
-    color: "#999",
-    marginTop: 4,
+    color: colors.text.light,
+    marginTop: spacing.xs,
     textAlign: "center",
   },
   productImage: {
     width: "100%",
     height: 120,
-    borderRadius: 8,
+    borderRadius: br.sm + 2,
     backgroundColor: "#e0e0e0",
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   productImagePlaceholder: {
     alignItems: "center",
     justifyContent: "center",
   },
-  productInitial: { fontSize: 28, fontWeight: "700", color: "#999" },
-  productName: { fontSize: 12, color: "#333", height: 32, marginBottom: 4 },
-  productPrice: { fontSize: 13, fontWeight: "700", color: "#2ECC71" },
+  productInitial: { fontSize: 28, fontWeight: fontWeight.bold, color: colors.text.light },
+  productName: { fontSize: fontSize.xs, color: colors.text.primary, height: 32, marginBottom: spacing.xs },
+  productPrice: { fontSize: fontSize.xs + 1, fontWeight: fontWeight.bold, color: colors.success },
   skeleton: { backgroundColor: "#e6e6e6" },
   skeletonLine: {
-    height: 10,
-    borderRadius: 4,
+    height: spacing.sm + 2,
+    borderRadius: spacing.xs,
     backgroundColor: "#e6e6e6",
-    marginBottom: 6,
+    marginBottom: spacing.xs + 2,
   },
 });

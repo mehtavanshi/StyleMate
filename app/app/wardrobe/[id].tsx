@@ -8,9 +8,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { clothingApi, ClothingItem } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
+import { Sparkles } from "../../lib/icons";
+import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../../theme/tokens";
 
 const CATEGORY_COLORS: Record<string, string> = {
   top: "#4A90D9",
@@ -68,9 +71,11 @@ export default function ItemDetailScreen() {
 
   if (loading || !item) {
     return (
-      <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Loading item details">
-        <Text style={styles.loadingText}>Loading...</Text>
-      </View>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Loading item details">
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -85,6 +90,7 @@ export default function ItemDetailScreen() {
   };
 
   return (
+    <SafeAreaView style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {item.image_url && !imgFailed ? (
         <Image
@@ -119,61 +125,62 @@ export default function ItemDetailScreen() {
         style={styles.styleMatchButton}
         onPress={() => router.push(`/style-match?id=${item.id}`)}
       >
-        <Text style={styles.styleMatchButtonText}>✨ Style Match Suggestions</Text>
+        <Text style={styles.styleMatchButtonText}><Sparkles size={18} color="#fff" strokeWidth={1.5} /> Style Match Suggestions</Text>
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
         <Text style={styles.deleteButtonText}>Delete from Wardrobe</Text>
       </TouchableOpacity>
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  content: { paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { paddingBottom: spacing.xxl + spacing.sm },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  loadingText: { fontSize: 15, color: "#888" },
+  loadingText: { fontSize: fontSize.sm + 1, color: colors.text.tertiary },
 
   image: { width: "100%", height: 320, backgroundColor: "#ddd" },
   imagePlaceholder: { alignItems: "center", justifyContent: "center" },
-  placeholderText: { fontSize: 48, fontWeight: "700", color: "#999" },
+  placeholderText: { fontSize: fontSize.display, fontWeight: fontWeight.bold, color: colors.text.light },
 
-  infoSection: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16 },
-  name: { fontSize: 20, fontWeight: "700", flex: 1, marginRight: 10 },
-  categoryBadge: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5 },
-  categoryText: { color: "#fff", fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
+  infoSection: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.lg },
+  name: { fontSize: fontSize.xl, fontWeight: fontWeight.bold, flex: 1, marginRight: spacing.sm },
+  categoryBadge: { borderRadius: br.sm + 2, paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 1 },
+  categoryText: { color: colors.text.white, fontSize: fontSize.xs, fontWeight: fontWeight.bold, textTransform: "uppercase" },
 
-  tagsCard: { marginHorizontal: 16, backgroundColor: "#fff", borderRadius: 12, padding: 4 },
+  tagsCard: { marginHorizontal: spacing.lg, backgroundColor: colors.surface, borderRadius: br.md, padding: spacing.xs },
   tagRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
-  tagLabel: { fontSize: 14, color: "#999", textTransform: "capitalize" },
-  tagValue: { fontSize: 14, fontWeight: "600", color: "#333", textTransform: "capitalize" },
+  tagLabel: { fontSize: fontSize.sm, color: colors.text.light, textTransform: "capitalize" },
+  tagValue: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.accent, textTransform: "capitalize" },
 
   styleMatchButton: {
-    marginHorizontal: 16,
-    marginTop: 24,
-    backgroundColor: "#333",
-    borderRadius: 12,
-    padding: 16,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.xl,
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    padding: spacing.lg,
     alignItems: "center",
   },
-  styleMatchButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  styleMatchButtonText: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.bold },
   deleteButton: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    backgroundColor: "#fff",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    backgroundColor: colors.surface,
     borderWidth: 1.5,
-    borderColor: "#E74C3C",
-    borderRadius: 12,
-    padding: 16,
+    borderColor: colors.danger,
+    borderRadius: br.md,
+    padding: spacing.lg,
     alignItems: "center",
   },
-  deleteButtonText: { color: "#E74C3C", fontSize: 16, fontWeight: "700" },
+  deleteButtonText: { color: colors.danger, fontSize: fontSize.base, fontWeight: fontWeight.bold },
 });

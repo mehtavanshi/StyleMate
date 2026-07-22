@@ -70,6 +70,26 @@ async function apiDelete(path: string): Promise<void> {
   }
 }
 
+export interface SuggestionsResponse {
+  wardrobe_matches: SuggestionMatch[];
+  shop_matches: ShopLink[];
+}
+
+export interface SuggestionMatch {
+  id: number;
+  name: string | null;
+  category: string;
+  color: string | null;
+  pattern: string | null;
+  image_url: string | null;
+  color_harmony_score: number;
+}
+
+export interface ShopLink {
+  store: string;
+  url: string;
+}
+
 export const clothingApi = {
   list: (params?: { category?: string; season?: string; occasion_tag?: string; target_gender?: string }) => {
     const query = new URLSearchParams();
@@ -93,6 +113,12 @@ export const clothingApi = {
     }),
   delete: (id: number) =>
     apiFetch<{ detail: string }>(`/clothing/${id}`, { method: "DELETE" }),
+  suggestions: (id: number, category: string, limit?: number) => {
+    const params = new URLSearchParams();
+    params.set("category", category);
+    if (limit) params.set("limit", String(limit));
+    return apiFetch<SuggestionsResponse>(`/clothing/${id}/suggestions?${params.toString()}`);
+  },
 };
 
 export const usersApi = {

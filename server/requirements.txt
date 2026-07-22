@@ -21,6 +21,8 @@ implicit
 scipy
 scikit-learn
 
+colorthief
+
 # Optional: S3 storage (set STORAGE_PROVIDER=s3)
 # boto3
 

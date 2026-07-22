@@ -8,11 +8,14 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { borderRadius as br, colors, fontSize, fontWeight, shadow, spacing } from "../../theme/tokens";
 import { router, useFocusEffect } from "expo-router";
 
 import { DEMO_USER_ID, tryOnApi, TryOnJob } from "../../lib/api";
 import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
+import { X } from "../../lib/icons";
 
 function TryOnResultCard({ item }: { item: TryOnJob }) {
   const [imgFailed, setImgFailed] = useState(false);
@@ -106,7 +109,7 @@ export default function MyTryOnsScreen() {
   const renderFailed = ({ item }: { item: TryOnJob }) => (
     <View style={[styles.card, styles.cardFailed]} accessibilityLabel={`Failed try-on: ${item.error_message || "Unknown error"}`}>
       <View style={styles.cardImage}>
-        <Text style={styles.failedIcon}>✕</Text>
+        <X size={32} color="#E74C3C" strokeWidth={1.5} />
       </View>
       <View style={styles.cardInfo}>
         <Text style={styles.failedText} numberOfLines={2}>
@@ -120,7 +123,7 @@ export default function MyTryOnsScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {completedResults.length > 0 && (
         <>
           <Text style={styles.sectionTitle}>Successful Try-Ons</Text>
@@ -147,37 +150,33 @@ export default function MyTryOnsScreen() {
           />
         </>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30 },
-  loadingText: { fontSize: 14, color: "#888", marginTop: 10 },
-  emptyTitle: { fontSize: 18, fontWeight: "600", marginBottom: 8 },
-  emptyText: { fontSize: 14, color: "#888", textAlign: "center", lineHeight: 22, paddingHorizontal: 20 },
+  container: { flex: 1, backgroundColor: colors.background },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl },
+  loadingText: { fontSize: fontSize.sm, color: colors.text.tertiary, marginTop: spacing.sm },
+  emptyTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, marginBottom: spacing.sm },
+  emptyText: { fontSize: fontSize.sm, color: colors.text.tertiary, textAlign: "center", lineHeight: 22, paddingHorizontal: spacing.xl },
 
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
   },
-  grid: { paddingHorizontal: 12, paddingBottom: 20 },
+  grid: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl },
 
   card: {
     flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: br.md,
     overflow: "hidden",
-    margin: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    margin: spacing.xs,
+    ...shadow.sm,
   },
   cardFailed: { opacity: 0.6 },
   cardImage: {
@@ -189,10 +188,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  cardPlaceholderText: { fontSize: 28, fontWeight: "700", color: "#999" },
-  failedIcon: { fontSize: 28, color: "#E74C3C", fontWeight: "700" },
-  cardInfo: { padding: 8 },
-  cardMeta: { fontSize: 11, color: "#888" },
-  cardDate: { fontSize: 11, color: "#aaa", marginTop: 2 },
-  failedText: { fontSize: 12, color: "#E74C3C", lineHeight: 16 },
+  cardPlaceholderText: { fontSize: fontSize.xxl + 4, fontWeight: fontWeight.bold, color: colors.text.light },
+  failedIcon: { fontSize: fontSize.xxl + 4, color: colors.danger, fontWeight: fontWeight.bold },
+  cardInfo: { padding: spacing.sm },
+  cardMeta: { fontSize: fontSize.xs - 1, color: colors.text.tertiary },
+  cardDate: { fontSize: fontSize.xs - 1, color: colors.text.muted, marginTop: spacing.xs },
+  failedText: { fontSize: fontSize.xs, color: colors.danger, lineHeight: 16 },
 });

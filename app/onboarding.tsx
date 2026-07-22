@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { borderRadius as br, colors, fontSize, fontWeight, shadow, spacing } from "./theme/tokens";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useForm } from "react-hook-form";
 import { router, useNavigation } from "expo-router";
@@ -122,6 +124,7 @@ export default function OnboardingScreen() {
   };
 
   return (
+    <SafeAreaView style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.heading}>About your shape</Text>
       <Text style={styles.subtitle}>
@@ -174,51 +177,48 @@ export default function OnboardingScreen() {
         )}
       </TouchableOpacity>
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  content: { padding: 20, paddingBottom: 40 },
-  heading: { fontSize: 24, fontWeight: "800", marginBottom: 6 },
-  subtitle: { fontSize: 15, color: "#666", marginBottom: 20, lineHeight: 22 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.xl, paddingBottom: spacing.xxl + spacing.sm },
+  heading: { fontSize: fontSize.xxl, fontWeight: fontWeight.extrabold, marginBottom: spacing.xs + 2 },
+  subtitle: { fontSize: fontSize.sm + 1, color: "#666", marginBottom: spacing.xl, lineHeight: 22 },
   question: { marginBottom: 22 },
-  questionTitle: { fontSize: 16, fontWeight: "700", marginBottom: 12, color: "#333" },
-  options: { gap: 10 },
+  questionTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold, marginBottom: spacing.md, color: colors.accent },
+  options: { gap: spacing.sm + 2 },
   card: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    backgroundColor: colors.surface,
+    borderRadius: br.md,
+    padding: spacing.lg,
+    ...shadow.sm,
     borderWidth: 2,
     borderColor: "transparent",
   },
-  cardSelected: { borderColor: "#333", backgroundColor: "#333" },
+  cardSelected: { borderColor: colors.accent, backgroundColor: colors.accent },
   iconWrap: {
     width: 64,
     height: 64,
-    borderRadius: 10,
+    borderRadius: br.sm + 4,
     backgroundColor: "#f0f0f0",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 14,
+    marginRight: spacing.sm + 6,
   },
-  cardLabel: { fontSize: 15, fontWeight: "600", color: "#333", flexShrink: 1 },
-  cardLabelSelected: { color: "#fff" },
-  errorText: { color: "#c00", fontSize: 14, marginBottom: 12 },
+  cardLabel: { fontSize: fontSize.sm + 1, fontWeight: fontWeight.semibold, color: colors.accent, flexShrink: 1 },
+  cardLabelSelected: { color: colors.text.white },
+  errorText: { color: "#c00", fontSize: fontSize.sm, marginBottom: spacing.md },
   submitButton: {
-    backgroundColor: "#333",
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    padding: spacing.lg,
     alignItems: "center",
-    marginTop: 8,
+    marginTop: spacing.sm,
   },
-  submitDisabled: { backgroundColor: "#aaa" },
-  submitText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  submitDisabled: { backgroundColor: colors.text.muted },
+  submitText: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.bold },
 });

@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { borderRadius as br, colors, fontSize, fontWeight, shadow, spacing } from "../../theme/tokens";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 
@@ -61,7 +63,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={styles.container} accessibilityRole="none">
+    <SafeAreaView style={styles.container} accessibilityRole="none">
       <Text style={styles.title} accessibilityRole="header">StyleMate</Text>
       <Text style={styles.subtitle}>Your AI Wardrobe Assistant</Text>
 
@@ -125,66 +127,34 @@ export default function HomeScreen() {
         </TouchableOpacity>
       )}
 
-      <View style={styles.divider} />
 
-      <Text style={styles.sectionLabel}>Privacy</Text>
-
-      {consentStatus?.photo_consent ? (
-        <TouchableOpacity
-          style={styles.linkButton}
-          onPress={() => router.push("/consent")}
-        >
-          <Text style={styles.linkButtonText}>Review consent</Text>
-        </TouchableOpacity>
-      ) : (
-        <TouchableOpacity
-          style={[styles.linkButton, styles.linkButtonPrimary]}
-          onPress={() => router.push("/consent")}
-        >
-          <Text style={styles.linkButtonTextPrimary}>Give photo consent</Text>
-        </TouchableOpacity>
-      )}
-
-      <TouchableOpacity
-        style={styles.linkButton}
-        onPress={() => router.push("/privacy")}
-      >
-        <Text style={styles.linkButtonText}>Privacy policy</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.linkButton}
-        onPress={() => router.push("/settings")}
-      >
-        <Text style={styles.linkButtonText}>Settings</Text>
-      </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20, backgroundColor: "#f5f5f5" },
-  title: { fontSize: 32, fontWeight: "800", marginBottom: 4 },
-  subtitle: { fontSize: 16, color: "#666", marginBottom: 30 },
-  card: { backgroundColor: "#fff", borderRadius: 12, padding: 20, width: "100%", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
-  cardTitle: { fontSize: 18, fontWeight: "600", marginBottom: 8 },
-  cardText: { fontSize: 14, color: "#555", lineHeight: 20 },
+  container: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, backgroundColor: colors.background },
+  title: { fontSize: fontSize.xxxl, fontWeight: fontWeight.extrabold, marginBottom: spacing.xs },
+  subtitle: { fontSize: fontSize.base, color: "#666", marginBottom: spacing.xxl - 2 },
+  card: { backgroundColor: colors.surface, borderRadius: br.md, padding: spacing.xl, width: "100%", ...shadow.sm },
+  cardTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, marginBottom: spacing.sm },
+  cardText: { fontSize: fontSize.sm, color: "#555", lineHeight: 20 },
   cta: {
-    marginTop: 24,
-    backgroundColor: "#333",
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
+    marginTop: spacing.xl,
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xxl,
     width: "100%",
     alignItems: "center",
   },
-  ctaText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  divider: { height: 1, backgroundColor: "#ddd", width: "100%", marginVertical: 20 },
-  sectionLabel: { fontSize: 13, fontWeight: "700", color: "#999", textTransform: "uppercase", letterSpacing: 1, alignSelf: "flex-start", marginBottom: 10 },
+  ctaText: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  divider: { height: 1, backgroundColor: "#ddd", width: "100%", marginVertical: spacing.xl },
+  sectionLabel: { fontSize: fontSize.xs + 1, fontWeight: fontWeight.bold, color: colors.text.light, textTransform: "uppercase", letterSpacing: 1, alignSelf: "flex-start", marginBottom: spacing.sm },
   photoPreviewWrap: {
     width: "100%",
-    marginBottom: 10,
-    borderRadius: 12,
+    marginBottom: spacing.sm,
+    borderRadius: br.md,
     overflow: "hidden",
     backgroundColor: "#e0e0e0",
   },
@@ -195,18 +165,18 @@ const styles = StyleSheet.create({
 
   linkButton: {
     width: "100%",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginBottom: 8,
+    backgroundColor: colors.surface,
+    borderRadius: br.md,
+    paddingVertical: spacing.sm + 6,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#e0e0e0",
   },
-  linkButtonPrimary: { backgroundColor: "#333", borderColor: "#333" },
-  linkButtonText: { fontSize: 15, color: "#333", fontWeight: "600" },
-  linkButtonTextPrimary: { fontSize: 15, color: "#fff", fontWeight: "700" },
+  linkButtonPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
+  linkButtonText: { fontSize: fontSize.sm + 1, color: colors.accent, fontWeight: fontWeight.semibold },
+  linkButtonTextPrimary: { fontSize: fontSize.sm + 1, color: colors.text.white, fontWeight: fontWeight.bold },
   deleteButton: { borderColor: "#c00" },
-  deleteButtonText: { fontSize: 15, color: "#c00", fontWeight: "600" },
+  deleteButtonText: { fontSize: fontSize.sm + 1, color: "#c00", fontWeight: fontWeight.semibold },
 });

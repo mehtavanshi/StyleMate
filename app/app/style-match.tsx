@@ -9,10 +9,13 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import * as Linking from "expo-linking";
 import { styleAdviceApi, StyleAdviceResponse, SuggestionWithProducts } from "../lib/api";
 import { BASE_URL } from "../config/api";
+import { Search, ShoppingBag } from "../lib/icons";
+import { spacing, fontSize, fontWeight, borderRadius as br, colors, shadow } from "../theme/tokens";
 
 function imageUrl(raw: string | null | undefined): string | null {
   if (!raw) return null;
@@ -111,6 +114,7 @@ export default function StyleMatchScreen() {
   }
 
   return (
+    <SafeAreaView style={{ flex: 1 }}>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -127,6 +131,7 @@ export default function StyleMatchScreen() {
         {layering && layering.length > 0 && <SuggestionRow label="Layering" items={layering} />}
       </View>
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -163,7 +168,7 @@ function SuggestionCard({ item }: { item: SuggestionWithProducts }) {
             <Image source={{ uri: productImage }} style={styles.suggestionCardImg} />
           ) : (
             <View style={[styles.suggestionCardImg, styles.suggestionCardImgFallback]}>
-              <Text style={styles.suggestionCardFallbackIcon}>🛍️</Text>
+              <ShoppingBag size={32} color="#ccc" strokeWidth={1.5} />
             </View>
           )}
           {topProduct && (
@@ -188,13 +193,19 @@ function SuggestionCard({ item }: { item: SuggestionWithProducts }) {
           style={styles.suggestionCardLinkBtn}
           onPress={() => openLink(meeshoUrl || googleUrl)}
         >
-          <Text style={styles.suggestionCardLinkText}>🛍️ Meesho</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <ShoppingBag size={16} color="#333" strokeWidth={1.5} />
+            <Text style={styles.suggestionCardLinkText}>Meesho</Text>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.suggestionCardLinkBtn}
           onPress={() => openLink(googleUrl)}
         >
-          <Text style={styles.suggestionCardLinkText}>🔍 Google</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Search size={16} color="#333" strokeWidth={1.5} />
+            <Text style={styles.suggestionCardLinkText}>Google</Text>
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -206,51 +217,51 @@ function SuggestionCard({ item }: { item: SuggestionWithProducts }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  content: { paddingBottom: 40 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30 },
-  loadingText: { fontSize: 14, color: "#888", marginTop: 10, textAlign: "center" },
-  errorText: { fontSize: 14, color: "#c00", textAlign: "center", marginBottom: 16 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { paddingBottom: spacing.xxl + spacing.sm },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl + 6 },
+  loadingText: { fontSize: fontSize.sm, color: colors.text.tertiary, marginTop: spacing.sm + 2, textAlign: "center" },
+  errorText: { fontSize: fontSize.sm, color: colors.danger, textAlign: "center", marginBottom: spacing.lg },
   retryBtn: {
-    backgroundColor: "#333",
-    borderRadius: 10,
-    paddingHorizontal: 24,
-    paddingVertical: 10,
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm + 2,
   },
-  retryBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  retryBtnText: { color: colors.text.white, fontWeight: fontWeight.bold, fontSize: fontSize.sm },
 
   adviceSection: {
-    marginTop: 10,
-    backgroundColor: "#fff",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    marginTop: spacing.sm + 2,
+    backgroundColor: colors.surface,
+    paddingVertical: spacing.sm + 6,
+    paddingHorizontal: spacing.lg,
   },
-  adviceTitle: { fontSize: 17, fontWeight: "800", marginBottom: 4 },
+  adviceTitle: { fontSize: fontSize.base + 1, fontWeight: fontWeight.extrabold, marginBottom: spacing.xs },
   adviceReason: {
-    fontSize: 13,
+    fontSize: fontSize.xs + 1,
     color: "#666",
     fontStyle: "italic",
-    marginBottom: 12,
+    marginBottom: spacing.md,
     lineHeight: 18,
   },
 
-  suggestionRow: { marginBottom: 8 },
+  suggestionRow: { marginBottom: spacing.sm },
   suggestionLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#999",
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.text.light,
     textTransform: "uppercase",
     letterSpacing: 0.5,
-    marginBottom: 6,
+    marginBottom: spacing.xs + 2,
   },
-  suggestionScroll: { gap: 10, paddingRight: 16 },
+  suggestionScroll: { gap: spacing.sm + 2, paddingRight: spacing.lg },
   suggestionCard: {
     width: 200,
     backgroundColor: "#fafafa",
-    borderRadius: 12,
+    borderRadius: br.md,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#eee",
+    borderColor: colors.border,
   },
   suggestionCardImgWrap: { position: "relative" },
   suggestionCardImg: { width: "100%", height: 200, backgroundColor: "#e0e0e0" },
@@ -259,41 +270,41 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  suggestionCardFallbackIcon: { fontSize: 32, opacity: 0.3 },
+  suggestionCardFallbackIcon: { fontSize: fontSize.xxl + 8, opacity: 0.3 },
   suggestionSourceBadge: {
     position: "absolute",
-    top: 8,
-    left: 8,
+    top: spacing.sm,
+    left: spacing.sm,
     backgroundColor: "rgba(0,0,0,0.65)",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    borderRadius: br.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs - 1,
   },
-  suggestionSourceText: { fontSize: 11, fontWeight: "700", color: "#fff", textTransform: "capitalize" },
-  suggestionCardProduct: { fontSize: 13, fontWeight: "700", color: "#222", margin: 8, marginBottom: 2 },
-  suggestionCardPrice: { fontSize: 15, fontWeight: "800", color: "#333", marginHorizontal: 8, marginBottom: 4 },
-  suggestionCardMore: { fontSize: 11, fontWeight: "600", color: "#6C5CE7", marginHorizontal: 8, marginBottom: 8 },
+  suggestionSourceText: { fontSize: 11, fontWeight: fontWeight.bold, color: colors.text.white, textTransform: "capitalize" },
+  suggestionCardProduct: { fontSize: fontSize.xs + 1, fontWeight: fontWeight.bold, color: "#222", margin: spacing.sm, marginBottom: spacing.xs - 2 },
+  suggestionCardPrice: { fontSize: fontSize.sm + 1, fontWeight: fontWeight.extrabold, color: colors.accent, marginHorizontal: spacing.sm, marginBottom: spacing.xs },
+  suggestionCardMore: { fontSize: 11, fontWeight: fontWeight.semibold, color: "#6C5CE7", marginHorizontal: spacing.sm, marginBottom: spacing.sm },
   suggestionCardTag: {
     backgroundColor: "#f0eeff",
     borderTopWidth: 1,
     borderTopColor: "#e8e5ff",
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: br.sm - 1,
   },
-  suggestionCardTagText: { fontSize: 11, fontWeight: "600", color: "#6C5CE7" },
+  suggestionCardTagText: { fontSize: 11, fontWeight: fontWeight.semibold, color: "#6C5CE7" },
   suggestionCardLinks: {
     flexDirection: "row",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 2,
   },
   suggestionCardLinkBtn: {
     flex: 1,
     backgroundColor: "#f5f5f5",
-    borderRadius: 6,
-    paddingVertical: 5,
+    borderRadius: br.sm,
+    paddingVertical: br.sm - 1,
     alignItems: "center",
   },
-  suggestionCardLinkText: { fontSize: 11, fontWeight: "700", color: "#444" },
-  suggestionCardFallback: { fontSize: 12, color: "#aaa", fontStyle: "italic", margin: 8, marginTop: 0 },
+  suggestionCardLinkText: { fontSize: 11, fontWeight: fontWeight.bold, color: "#444" },
+  suggestionCardFallback: { fontSize: fontSize.xs, color: colors.text.muted, fontStyle: "italic", margin: spacing.sm, marginTop: 0 },
 });

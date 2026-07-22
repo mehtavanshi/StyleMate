@@ -10,6 +10,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { ChevronDown, ChevronUp } from "../../lib/icons";
+import { spacing, fontSize, fontWeight, borderRadius as br, colors } from "../../theme/tokens";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 
 import { BASE_URL } from "../../config/api";
@@ -206,68 +209,77 @@ export default function AddItemScreen() {
 
   if (!consentChecked) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#333" style={{ marginTop: 100 }} />
-      </View>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.container}>
+          <ActivityIndicator size="large" color="#333" style={{ marginTop: 100 }} />
+        </View>
+      </SafeAreaView>
     );
   }
 
   // Tagging step
   if (step === "tagging") {
     return (
-      <View style={styles.container} accessibilityRole="progressbar" accessibilityLabel="Analyzing garment with AI">
-        <View style={styles.loadingContent}>
-          <ActivityIndicator size="large" color="#333" />
-          <Text style={styles.loadingText}>Analyzing with AI...</Text>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.container} accessibilityRole="progressbar" accessibilityLabel="Analyzing garment with AI">
+          <View style={styles.loadingContent}>
+            <ActivityIndicator size="large" color="#333" />
+            <Text style={styles.loadingText}>Analyzing with AI...</Text>
+          </View>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   // Error step
   if (step === "error") {
     return (
-      <View style={styles.container}>
-        <View style={styles.loadingContent}>
-          <Text style={styles.errorTitle}>Tagging Failed</Text>
-          <Text style={styles.errorDetail}>{errorMsg || "Failed to analyze image."}</Text>
-          <TouchableOpacity
-            style={styles.button}
-            onPress={() => {
-              if (imageUrl) {
-                setStep("form");
-              } else {
-                handleNavigateToCapture();
-              }
-            }}
-          >
-            <Text style={styles.buttonText}>Try Again</Text>
-          </TouchableOpacity>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.container}>
+          <View style={styles.loadingContent}>
+            <Text style={styles.errorTitle}>Tagging Failed</Text>
+            <Text style={styles.errorDetail}>{errorMsg || "Failed to analyze image."}</Text>
+            <TouchableOpacity
+              style={styles.button}
+              onPress={() => {
+                if (imageUrl) {
+                  setStep("form");
+                } else {
+                  handleNavigateToCapture();
+                }
+              }}
+            >
+              <Text style={styles.buttonText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   // No image yet — show CTA
   if (!imageUrl) {
     return (
-      <View style={styles.container}>
-        <View style={styles.pickContent}>
-          <Text style={styles.heading}>Add New Item</Text>
-          <Text style={styles.subtitle}>
-            Take a photo of your clothing to auto-tag it with AI.
-          </Text>
-          <TouchableOpacity style={styles.button} onPress={handleNavigateToCapture}>
-            <Text style={styles.buttonText}>Take Photo</Text>
-          </TouchableOpacity>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.container}>
+          <View style={styles.pickContent}>
+            <Text style={styles.heading}>Add New Item</Text>
+            <Text style={styles.subtitle}>
+              Take a photo of your clothing to auto-tag it with AI.
+            </Text>
+            <TouchableOpacity style={styles.button} onPress={handleNavigateToCapture}>
+              <Text style={styles.buttonText}>Take Photo</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   // Form step
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.formContent}>
+    <SafeAreaView style={{ flex: 1 }}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.formContent}>
       {imageUrl && (
         <Image source={{ uri: `${BASE_URL}${imageUrl}` }} style={styles.formImage} />
       )}
@@ -311,10 +323,16 @@ export default function AddItemScreen() {
         style={styles.moreToggle}
         onPress={() => setShowMore(!showMore)}
       >
-        <Text style={styles.moreToggleText}>
-          {showMore ? "Less details" : "More details"}
-        </Text>
-        <Text style={styles.moreToggleChevron}>{showMore ? "\u25B2" : "\u25BC"}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <Text style={styles.moreToggleText}>
+            {showMore ? "Less details" : "More details"}
+          </Text>
+          {showMore ? (
+            <ChevronUp size={18} color="#666" strokeWidth={1.5} />
+          ) : (
+            <ChevronDown size={18} color="#666" strokeWidth={1.5} />
+          )}
+        </View>
       </TouchableOpacity>
 
       {showMore && (
@@ -360,74 +378,75 @@ export default function AddItemScreen() {
           <Text style={styles.cancelButtonText}>Retake Photo</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  pickContent: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40 },
-  heading: { fontSize: 24, fontWeight: "700", marginBottom: 8 },
-  subtitle: { fontSize: 15, color: "#666", textAlign: "center", marginBottom: 32, lineHeight: 22 },
-  loadingContent: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40 },
-  loadingText: { fontSize: 16, color: "#666", marginTop: 12 },
-  errorTitle: { fontSize: 18, fontWeight: "700", color: "#c00", marginTop: 16, marginBottom: 8 },
-  errorDetail: { fontSize: 14, color: "#888", textAlign: "center", marginBottom: 24 },
+  container: { flex: 1, backgroundColor: colors.background },
+  pickContent: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl + spacing.sm },
+  heading: { fontSize: fontSize.xxl, fontWeight: fontWeight.bold, marginBottom: spacing.sm },
+  subtitle: { fontSize: fontSize.sm + 1, color: "#666", textAlign: "center", marginBottom: spacing.xxl, lineHeight: 22 },
+  loadingContent: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl + spacing.sm },
+  loadingText: { fontSize: fontSize.base, color: "#666", marginTop: spacing.md },
+  errorTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: colors.danger, marginTop: spacing.lg, marginBottom: spacing.sm },
+  errorDetail: { fontSize: fontSize.sm, color: colors.text.tertiary, textAlign: "center", marginBottom: spacing.xl },
   button: {
     width: "100%",
-    backgroundColor: "#333",
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    padding: spacing.lg,
     alignItems: "center",
   },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  formImage: { width: "100%", height: 200, borderRadius: 12, marginBottom: 16 },
-  formContent: { padding: 20, paddingBottom: 40 },
-  label: { fontSize: 14, fontWeight: "600", marginTop: 16, marginBottom: 6, color: "#333" },
+  buttonText: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  formImage: { width: "100%", height: 200, borderRadius: br.md, marginBottom: spacing.lg },
+  formContent: { padding: spacing.xl, paddingBottom: spacing.xxl + spacing.sm },
+  label: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, marginTop: spacing.lg, marginBottom: spacing.xs + 2, color: colors.text.primary },
   input: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 16,
+    backgroundColor: colors.surface,
+    borderRadius: br.md,
+    padding: spacing.sm + 6,
+    fontSize: fontSize.base,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: colors.border,
   },
   inputReview: {
     borderColor: "#e8b830",
     borderWidth: 2,
     backgroundColor: "#fffef5",
   },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   chipRowReview: {
     borderWidth: 2,
     borderColor: "#e8b830",
-    borderRadius: 12,
-    paddingVertical: 4,
-    paddingHorizontal: 6,
+    borderRadius: br.md,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.xs + 2,
     backgroundColor: "#fffef5",
   },
-  chip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "#e0e0e0" },
-  chipActive: { backgroundColor: "#333" },
-  chipText: { fontSize: 14, color: "#555", textTransform: "capitalize" },
-  chipTextActive: { color: "#fff" },
-  formActions: { marginTop: 30, gap: 12 },
+  chip: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: 20, backgroundColor: "#e0e0e0" },
+  chipActive: { backgroundColor: colors.accent },
+  chipText: { fontSize: fontSize.sm, color: "#555", textTransform: "capitalize" },
+  chipTextActive: { color: colors.text.white },
+  formActions: { marginTop: spacing.xl + 6, gap: spacing.md },
   moreToggle: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 20,
-    paddingVertical: 10,
+    marginTop: spacing.xl,
+    paddingVertical: spacing.sm + 2,
   },
-  moreToggleText: { fontSize: 15, fontWeight: "600", color: "#555", marginRight: 6 },
-  moreToggleChevron: { fontSize: 12, color: "#555" },
+  moreToggleText: { fontSize: fontSize.sm + 1, fontWeight: fontWeight.semibold, color: "#555" },
+  moreToggleChevron: { fontSize: fontSize.xs, color: "#555" },
   moreSection: {
-    marginTop: 4,
-    paddingTop: 12,
+    marginTop: spacing.xs,
+    paddingTop: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
+    borderTopColor: colors.border,
   },
-  saveButton: { backgroundColor: "#333", borderRadius: 12, padding: 16, alignItems: "center" },
-  saveButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  cancelButton: { alignItems: "center", padding: 12 },
-  cancelButtonText: { color: "#888", fontSize: 15 },
+  saveButton: { backgroundColor: colors.accent, borderRadius: br.md, padding: spacing.lg, alignItems: "center" },
+  saveButtonText: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  cancelButton: { alignItems: "center", padding: spacing.md },
+  cancelButtonText: { color: colors.text.tertiary, fontSize: fontSize.sm + 1 },
 });

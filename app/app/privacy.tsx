@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { colors, fontSize, fontWeight, spacing } from "../theme/tokens";
 import { useNavigation } from "expo-router";
 
 export default function PrivacyScreen() {
@@ -10,6 +12,7 @@ export default function PrivacyScreen() {
   }, [navigation]);
 
   return (
+    <SafeAreaView style={{ flex: 1 }}>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -75,6 +78,7 @@ export default function PrivacyScreen() {
         </Text>
       </Section>
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -88,11 +92,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  content: { padding: 20, paddingBottom: 40 },
-  heading: { fontSize: 24, fontWeight: "800", marginBottom: 4 },
-  lastUpdated: { fontSize: 13, color: "#999", marginBottom: 24 },
-  section: { marginBottom: 20 },
-  sectionTitle: { fontSize: 16, fontWeight: "700", marginBottom: 8, color: "#333" },
-  body: { fontSize: 15, color: "#555", lineHeight: 22 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.xl, paddingBottom: spacing.xxl + spacing.sm },
+  heading: { fontSize: fontSize.xxl, fontWeight: fontWeight.extrabold, marginBottom: spacing.xs },
+  lastUpdated: { fontSize: fontSize.xs + 1, color: colors.text.light, marginBottom: spacing.xl },
+  section: { marginBottom: spacing.xl },
+  sectionTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold, marginBottom: spacing.sm, color: colors.accent },
+  body: { fontSize: fontSize.sm + 1, color: "#555", lineHeight: 22 },
 });
