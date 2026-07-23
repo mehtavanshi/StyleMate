@@ -13,7 +13,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Calendar, DateData } from "react-native-calendars";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
+import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import {
   CalendarEntry,
   calendarApi,
@@ -100,6 +101,8 @@ export default function CalendarScreen() {
   const [suggestions, setSuggestions] = useState<OutfitSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [lockingIndex, setLockingIndex] = useState<number | null>(null);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerImage, setViewerImage] = useState<string | null>(null);
 
   const loadEntries = useCallback(
     async (y?: number, m?: number) => {
@@ -134,7 +137,11 @@ export default function CalendarScreen() {
     for (const e of entries) {
       marks[e.date] = {
         marked: true,
-        dotColor: e.locked_outfit_id != null ? "#2ECC71" : "#E8A317",
+        dotColor: e.try_on_result_id != null
+          ? "#9B59B6"
+          : e.locked_outfit_id != null
+            ? "#2ECC71"
+            : "#E8A317",
       };
     }
     if (selectedDate && !marks[selectedDate]) {
@@ -211,6 +218,33 @@ export default function CalendarScreen() {
     } finally {
       setLockingIndex(null);
     }
+  };
+
+  const handleOpenTryOnViewer = () => {
+    if (activeEntry?.try_on_result_image_url) {
+      setViewerImage(`${BASE_URL}${activeEntry.try_on_result_image_url}`);
+      setViewerVisible(true);
+    }
+  };
+
+  const handleShareTryOn = async () => {
+    if (!viewerImage) return;
+    try {
+      const Sharing = await import("expo-sharing");
+      const result = await manipulateAsync(viewerImage, [], { format: SaveFormat.PNG });
+      await Sharing.shareAsync(result.uri, {
+        mimeType: "image/png",
+        dialogTitle: "Share your try-on from StyleMate",
+      });
+    } catch {
+      // share cancelled
+    }
+  };
+
+  const handleRegenerateTryOn = () => {
+    setViewerVisible(false);
+    Alert.alert("Re-generate", "This would re-run the try-on. Redirecting to outfits.");
+    router.push("/outfits");
   };
 
   const handleDayPress = (day: DateData) => {
@@ -290,6 +324,23 @@ export default function CalendarScreen() {
                 </View>
               )}
             </View>
+
+            {/* Try-on result image */}
+            {activeEntry?.try_on_result_image_url && (
+              <View style={styles.tryOnImageContainer}>
+                <Image
+                  source={{ uri: `${BASE_URL}${activeEntry.try_on_result_image_url}` }}
+                  style={styles.tryOnImage}
+                  resizeMode="cover"
+                />
+                <View style={styles.tryOnImageOverlay} />
+                {activeEntry?.occasion_tag && (
+                  <View style={styles.tryOnOccasionChip}>
+                    <Text style={styles.tryOnOccasionText}>{activeEntry.occasion_tag}</Text>
+                  </View>
+                )}
+              </View>
+            )}
 
             {/* Occasion chips */}
             <Text style={styles.sectionLabel}>Occasion</Text>
@@ -395,6 +446,26 @@ export default function CalendarScreen() {
             )}
           </TouchableOpacity>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Try-on full-screen viewer */}
+      <Modal visible={viewerVisible} animationType="fade" onRequestClose={() => setViewerVisible(false)}>
+        <SafeAreaView style={styles.viewerContainer}>
+          {viewerImage && (
+            <Image source={{ uri: viewerImage }} style={styles.viewerImage} resizeMode="contain" />
+          )}
+          <View style={styles.viewerActions}>
+            <TouchableOpacity style={styles.viewerBtn} onPress={handleShareTryOn} accessibilityLabel="Share try-on">
+              <Text style={styles.viewerBtnText}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.viewerBtn} onPress={handleRegenerateTryOn} accessibilityLabel="Re-generate try-on">
+              <Text style={styles.viewerBtnText}>Re-generate</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.viewerBtn, styles.viewerClose]} onPress={() => setViewerVisible(false)} accessibilityLabel="Close viewer">
+              <Text style={styles.viewerCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
@@ -541,5 +612,81 @@ const styles = StyleSheet.create({
     fontSize: 7,
     fontWeight: fontWeight.bold,
     textTransform: "uppercase",
+  },
+
+  tryOnImageContainer: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    borderRadius: br.md + 4,
+    overflow: "hidden",
+    position: "relative",
+    backgroundColor: "#e0e0e0",
+  },
+  tryOnImage: {
+    width: "100%",
+    height: 220,
+    borderRadius: br.md + 4,
+  },
+  tryOnImageOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    backgroundColor: "rgba(0,0,0,0.25)",
+  },
+  tryOnOccasionChip: {
+    position: "absolute",
+    bottom: spacing.sm,
+    left: spacing.md,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 12,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  tryOnOccasionText: {
+    color: "#fff",
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+  },
+
+  viewerContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewerImage: {
+    width: "100%",
+    height: "70%",
+  },
+  viewerActions: {
+    flexDirection: "row",
+    gap: spacing.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
+    width: "100%",
+    justifyContent: "center",
+  },
+  viewerBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    paddingVertical: spacing.sm + 6,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+    minWidth: 120,
+  },
+  viewerBtnText: {
+    color: colors.text.white,
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
+  },
+  viewerClose: {
+    backgroundColor: "#555",
+  },
+  viewerCloseText: {
+    color: colors.text.white,
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
   },
 });

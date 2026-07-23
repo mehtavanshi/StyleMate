@@ -31,6 +31,15 @@ UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
 
 Base.metadata.create_all(bind=engine)
 
+with engine.connect() as conn:
+    cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(calendar_entries)")]
+    if "try_on_result_id" not in cols:
+        conn.exec_driver_sql(
+            "ALTER TABLE calendar_entries ADD COLUMN try_on_result_id INTEGER"
+        )
+        conn.commit()
+        logger.info("Migrated: added try_on_result_id to calendar_entries")
+
 load_body_type_rules()
 
 # Ensure demo user exists (id=1) so the app works out of the box.

@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   Image,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -13,7 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { router, useLocalSearchParams } from "expo-router";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 
-import { tryOnApi, TryOnJob } from "../lib/api";
+import { calendarApi, CalendarEntry, tryOnApi, TryOnJob } from "../lib/api";
 import { resolvePhotoUrl } from "../lib/constants";
 import { BASE_URL } from "../config/api";
 import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../theme/tokens";
@@ -35,6 +38,12 @@ export default function TryOnScreen() {
   const [saved, setSaved] = useState(false);
   const [messageIndex, setMessageIndex] = useState(0);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [calendarDate, setCalendarDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [savingToCalendar, setSavingToCalendar] = useState(false);
+  const [savedToCalendar, setSavedToCalendar] = useState(false);
 
   const insets = useSafeAreaInsets();
 
@@ -77,6 +86,7 @@ export default function TryOnScreen() {
           if (messageInterval.current) clearInterval(messageInterval.current);
           setJob({
             job_id: id,
+            id: 0,
             status: "failed",
             result_image_url: null,
             error_message: "Could not load try-on result",
@@ -108,6 +118,7 @@ export default function TryOnScreen() {
     } catch {
       setJob({
         job_id,
+        id: 0,
         status: "failed",
         result_image_url: null,
         error_message: "Could not load try-on result",
@@ -194,6 +205,25 @@ export default function TryOnScreen() {
       // Share cancelled or failed
     } finally {
       setSharing(false);
+    }
+  };
+
+  const handleSaveToCalendar = async () => {
+    if (!job?.result_image_url) return;
+    setSavingToCalendar(true);
+    try {
+      let entry = await calendarApi.create({ date: calendarDate });
+      if (!entry) {
+        Alert.alert("Error", "Could not create calendar entry");
+        return;
+      }
+      await calendarApi.linkTryOnImage(entry.id, job.id);
+      setSavedToCalendar(true);
+      setShowCalendarModal(false);
+    } catch (e: any) {
+      Alert.alert("Error", e.message || "Could not save to calendar");
+    } finally {
+      setSavingToCalendar(false);
     }
   };
 
@@ -352,11 +382,62 @@ export default function TryOnScreen() {
             <Text style={styles.actionBtnTextDark}>Share</Text>
           )}
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionBtn, styles.calendarBtn, savedToCalendar && styles.actionBtnDone]}
+          onPress={() => setShowCalendarModal(true)}
+          disabled={savedToCalendar}
+          accessibilityLabel="Save to calendar"
+        >
+          <Text style={[styles.actionBtnText, savedToCalendar && styles.actionBtnTextDone]}>
+            {savedToCalendar ? "Saved" : "Calendar"}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
         <Text style={styles.secondaryBtnText}>Back to Outfits</Text>
       </TouchableOpacity>
+
+      <Modal
+        visible={showCalendarModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCalendarModal(false)}
+      >
+        <View style={styles.calendarModalOverlay}>
+          <View style={styles.calendarModalContent}>
+            <Text style={styles.calendarModalTitle}>Save to Calendar</Text>
+            <Text style={styles.calendarModalLabel}>Date</Text>
+            <TextInput
+              style={styles.calendarDateInput}
+              value={calendarDate}
+              onChangeText={setCalendarDate}
+              placeholder="YYYY-MM-DD"
+            />
+            <View style={styles.calendarModalActions}>
+              <TouchableOpacity
+                style={[styles.calendarModalBtn, styles.calendarModalCancel]}
+                onPress={() => setShowCalendarModal(false)}
+                disabled={savingToCalendar}
+              >
+                <Text style={styles.calendarModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.calendarModalBtn, styles.calendarModalSave]}
+                onPress={handleSaveToCalendar}
+                disabled={savingToCalendar}
+              >
+                {savingToCalendar ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.calendarModalSaveText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -440,6 +521,8 @@ const styles = StyleSheet.create({
   shareBtn: { backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.accent },
   actionBtnText: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.bold },
   actionBtnTextDark: { color: colors.accent, fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  actionBtnTextDone: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  calendarBtn: { backgroundColor: colors.success },
 
   primaryBtn: {
     backgroundColor: colors.accent,
@@ -461,4 +544,72 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   secondaryBtnText: { color: "#666", fontSize: fontSize.sm + 1, fontWeight: fontWeight.semibold },
+
+  calendarModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.xl,
+  },
+  calendarModalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: br.lg,
+    padding: spacing.xl,
+    width: "100%",
+    maxWidth: 340,
+    gap: spacing.md,
+  },
+  calendarModalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.text.primary,
+    textAlign: "center",
+  },
+  calendarModalLabel: {
+    fontSize: fontSize.sm + 1,
+    fontWeight: fontWeight.semibold,
+    color: colors.text.secondary,
+  },
+  calendarDateInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: br.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    fontSize: fontSize.base,
+    color: colors.text.primary,
+    backgroundColor: colors.background,
+  },
+  calendarModalActions: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.sm,
+  },
+  calendarModalBtn: {
+    flex: 1,
+    borderRadius: br.md,
+    paddingVertical: spacing.sm + 6,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
+  },
+  calendarModalCancel: {
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
+  calendarModalSave: {
+    backgroundColor: colors.accent,
+  },
+  calendarModalCancelText: {
+    color: colors.text.secondary,
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
+  },
+  calendarModalSaveText: {
+    color: colors.text.white,
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
+  },
 });

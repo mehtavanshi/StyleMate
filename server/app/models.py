@@ -64,9 +64,11 @@ class CalendarEntry(Base):
     date = Column(Date, nullable=False)
     occasion_tag = Column(String, nullable=True)
     locked_outfit_id = Column(Integer, nullable=True)
+    try_on_result_id = Column(Integer, ForeignKey("try_on_results.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="calendar_entries")
+    try_on_result = relationship("TryOnResult")
 
 
 class TryOnResult(Base):

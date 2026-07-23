@@ -123,6 +123,7 @@ class CalendarEntryBase(BaseModel):
     date: date
     occasion_tag: Optional[str] = None
     locked_outfit_id: Optional[int] = None
+    try_on_result_id: Optional[int] = None
 
 
 class CalendarEntryCreate(CalendarEntryBase):
@@ -133,11 +134,14 @@ class CalendarEntryUpdate(BaseModel):
     date: Optional[date] = None
     occasion_tag: Optional[str] = None
     locked_outfit_id: Optional[int] = None
+    try_on_result_id: Optional[int] = None
 
 
 class CalendarEntryResponse(CalendarEntryBase):
     id: int
     user_id: int
+    try_on_result_id: int | None = None
+    try_on_result_image_url: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -146,6 +150,7 @@ class CalendarEntryResponse(CalendarEntryBase):
 # ── Try-On ──
 
 class TryOnResultOut(BaseModel):
+    id: int
     job_id: str
     status: str
     result_image_url: str | None = None

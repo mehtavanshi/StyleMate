@@ -319,6 +319,8 @@ export interface CalendarEntry {
   date: string;
   occasion_tag: string | null;
   locked_outfit_id: number | null;
+  try_on_result_id: number | null;
+  try_on_result_image_url: string | null;
   created_at: string;
 }
 
@@ -340,6 +342,11 @@ export const calendarApi = {
       method: "PATCH",
       body: JSON.stringify(updates),
     }),
+  linkTryOnImage: (entryId: number, tryOnResultId: number) =>
+    apiFetch<CalendarEntry>(`/calendar-entries/${entryId}/try-on-image`, {
+      method: "PATCH",
+      body: JSON.stringify({ try_on_result_id: tryOnResultId }),
+    }),
 };
 
 export interface SuggestionWithProducts {
@@ -360,6 +367,7 @@ export const styleAdviceApi = {
 };
 
 export interface TryOnJob {
+  id: number;
   job_id: string;
   status: "pending" | "processing" | "completed" | "failed";
   result_image_url: string | null;

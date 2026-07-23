@@ -11,6 +11,7 @@ All providers read credentials from environment variables — never hardcoded.
 """
 
 import asyncio
+import base64
 import hashlib
 import logging
 import os
@@ -736,6 +737,127 @@ class FreeSelfHostedProvider(TryOnProvider):
                 raise
 
 
+# ── GeminiTryOnProvider ──
+# Uses the Gemini API's generateContent endpoint with responseModalities
+# ["TEXT", "IMAGE"] to produce a virtual try-on result.
+
+class GeminiTryOnProvider(TryOnProvider):
+    DEFAULT_MODEL = "gemini-2.5-flash-image"
+    PRO_MODEL = "gemini-3-pro-image-preview"
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+    TIMEOUT = int(os.getenv("TRYON_GEMINI_TIMEOUT", "120"))
+
+    def __init__(self) -> None:
+        self.api_key = os.getenv("GEMINI_IMAGE_API_KEY", "")
+        if not self.api_key:
+            logger.warning(
+                "GEMINI_IMAGE_API_KEY not set — GeminiTryOnProvider will fail at runtime"
+            )
+        self.model = os.getenv("TRYON_GEMINI_MODEL", self.DEFAULT_MODEL)
+
+    async def render(
+        self,
+        user_photo_url: str,
+        garment_image_url: str,
+        category: str,
+    ) -> RenderResult:
+        storage = get_storage_provider()
+
+        user_bytes = await self._load_image(user_photo_url, storage)
+        garment_bytes = await self._load_image(garment_image_url, storage)
+
+        user_b64 = base64.b64encode(user_bytes).decode()
+        garment_b64 = base64.b64encode(garment_bytes).decode()
+
+        prompt = self._build_prompt(category)
+
+        b64_result = await self._generate_image(user_b64, garment_b64, prompt)
+        img_bytes = base64.b64decode(b64_result)
+
+        result_key = storage.save_file(img_bytes, "tryon_result.png", "image/png")
+        signed = storage.get_signed_url(result_key)
+
+        return RenderResult(
+            result_image_url=signed,
+            result_storage_key=result_key,
+            model_used=self.model,
+            category=category,
+        )
+
+    async def _load_image(self, url_or_key: str, storage) -> bytes:
+        if url_or_key.startswith("http"):
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(url_or_key)
+                resp.raise_for_status()
+                return resp.content
+        return storage.read_file(url_or_key)
+
+    def _build_prompt(self, category: str) -> str:
+        garment_desc = {
+            "upper_body": "a top",
+            "lower_body": "bottom clothing",
+            "dresses/full_body": "a dress",
+        }.get(category, "a garment")
+        return (
+            "You are a professional virtual try-on system. "
+            f"I will show you a photo of a person and {garment_desc}. "
+            "Please dress the person in the exact garment shown, preserving their face, body, and identity exactly. "
+            "Maintain the exact color, pattern, logo, and texture of the garment. "
+            "Match the lighting and framing of the original photo. "
+            "Produce a full-body, studio-quality result."
+        )
+
+    async def _generate_image(self, user_b64: str, garment_b64: str, prompt: str) -> str:
+        url = f"{self.BASE_URL}/{self.model}:generateContent?key={self.api_key}"
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt},
+                        {"inlineData": {"mimeType": "image/jpeg", "data": user_b64}},
+                        {"inlineData": {"mimeType": "image/jpeg", "data": garment_b64}},
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "responseModalities": ["TEXT", "IMAGE"],
+            },
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
+                resp = await client.post(url, json=payload)
+        except httpx.ConnectError as exc:
+            raise TryOnProviderDownError(f"Cannot reach Gemini API: {exc}")
+        except httpx.TimeoutException:
+            raise TryOnTimeoutError("Gemini request timed out")
+
+        if resp.status_code in (400, 422):
+            raise TryOnInputError(resp.text)
+        if resp.status_code in (401, 403):
+            raise TryOnAuthError(resp.text)
+        if resp.status_code == 429:
+            raise TryOnRateLimitError(resp.text)
+        if resp.status_code >= 500:
+            raise TryOnProviderDownError(
+                f"Gemini API returned {resp.status_code}: {resp.text}"
+            )
+        resp.raise_for_status()
+
+        data = resp.json()
+        for candidate in data.get("candidates", []):
+            for part in candidate.get("content", {}).get("parts", []):
+                if "inlineData" in part:
+                    return part["inlineData"]["data"]
+
+        finish_reason = data.get("candidates", [{}])[0].get("finishReason", "")
+        if finish_reason in ("SAFETY", "RECITATION"):
+            raise TryOnInputError(
+                f"Gemini blocked the image: {finish_reason}"
+            )
+        raise TryOnProviderDownError("Gemini returned no image in response")
+
+
 # ── Provider factory ──
 # Reads TRYON_PROVIDER at import time (startup), not per-request.
 
@@ -766,6 +888,13 @@ def get_try_on_provider() -> TryOnProvider:
             "commercial use, no uptime SLA. Switch TRYON_PROVIDER before launch."
         )
         _PROVIDER_INSTANCE = FreeSelfHostedProvider()
+    elif name == "gemini":
+        if not os.getenv("GEMINI_IMAGE_API_KEY"):
+            logger.warning(
+                "GEMINI_IMAGE_API_KEY is not set — "
+                "GeminiTryOnProvider calls will fail"
+            )
+        _PROVIDER_INSTANCE = GeminiTryOnProvider()
     else:
         _PROVIDER_INSTANCE = SelfHostedProvider()
 

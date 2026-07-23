@@ -187,6 +187,7 @@ def get_tryon_job(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Job not found")
 
     return TryOnResultOut(
+        id=record.id,
         job_id=record.job_id,
         status=record.status,
         result_image_url=_sign_result_url(record.result_image_url),
@@ -213,6 +214,7 @@ def list_tryon_results(user_id: int, db: Session = Depends(get_db)):
     )
     return [
         TryOnResultOut(
+            id=r.id,
             job_id=r.job_id,
             status=r.status,
             result_image_url=_sign_result_url(r.result_image_url),
