@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ChevronDown, ChevronUp } from "../../lib/icons";
 import { spacing, fontSize, fontWeight, borderRadius as br, colors } from "../../theme/tokens";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 
 import { BASE_URL } from "../../config/api";
 import { clothingApi, consentApi, DEMO_USER_ID, TagResult, uploadApi } from "../../lib/api";
@@ -74,11 +74,6 @@ export default function AddItemScreen() {
     }
   }, [routeImageUrl]);
 
-  useFocusEffect(
-    useCallback(() => {
-      setImageUri(null);
-    }, []),
-  );
 
   const handleTagImage = async (url: string) => {
     setStep("tagging");

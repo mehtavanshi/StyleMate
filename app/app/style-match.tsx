@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
-  RefreshControl,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,300 +12,382 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import * as Linking from "expo-linking";
-import { styleAdviceApi, StyleAdviceResponse, SuggestionWithProducts } from "../lib/api";
+import * as LinkingExpo from "expo-linking";
+import {
+  styleMatchApi,
+  StyleMatchItem,
+  StyleMatchResponse,
+  ShoppingSuggestion,
+  OccasionOutfit,
+} from "../lib/api";
 import { BASE_URL } from "../config/api";
-import { Search, ShoppingBag } from "../lib/icons";
-import { spacing, fontSize, fontWeight, borderRadius as br, colors, shadow } from "../theme/tokens";
-
-function imageUrl(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  if (raw.startsWith("http")) return raw;
-  return `${BASE_URL}${raw}`;
-}
-
-function formatPrice(price: number, currency: string): string {
-  const sym = currency === "INR" ? "₹" : currency + " ";
-  return sym + price.toFixed(0);
-}
-
-function openLink(url: string | null | undefined) {
-  if (!url) return;
-  Linking.openURL(url);
-}
+import {
+  House,
+  Layers,
+  Palette,
+  Shirt,
+  ShoppingBag,
+  Sparkles,
+  Watch,
+  XCircle,
+  type LucideProps,
+} from "../lib/icons";
+import {
+  borderRadius as br,
+  colors,
+  fontSize,
+  fontWeight,
+  MIN_TOUCH_TARGET,
+  shadow,
+  spacing,
+} from "../theme/tokens";
 
 export default function StyleMatchScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
-  const [advice, setAdvice] = useState<StyleAdviceResponse | null>(null);
+  const [data, setData] = useState<StyleMatchResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     navigation.setOptions({ title: "Style Match", headerShown: true });
   }, [navigation]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
-        const res = await styleAdviceApi.get(Number(id));
-        if (!cancelled) {
-          setAdvice(res);
-          setError(null);
-        }
+        const res = await styleMatchApi.get(Number(id));
+        setData(res);
       } catch (e: any) {
-        if (!cancelled) setError(e.message);
+        Alert.alert("Error", e.message);
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
+    };
+    load();
   }, [id]);
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    try {
-      const res = await styleAdviceApi.get(Number(id));
-      setAdvice(res);
-      setError(null);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   if (loading) {
     return (
-      <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Getting AI style advice">
+      <View style={styles.center}>
         <ActivityIndicator size="large" color="#333" />
-        <Text style={styles.loadingText}>Getting AI style advice…</Text>
+        <Text style={styles.loadingText}>Finding your perfect matches…</Text>
       </View>
     );
   }
 
-  if (error) {
+  if (!data) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={() => {
-          setLoading(true);
-          styleAdviceApi.get(Number(id))
-            .then((res) => { setAdvice(res); setError(null); })
-            .catch((e: any) => setError(e.message))
-            .finally(() => setLoading(false));
-        }}>
-          <Text style={styles.retryBtnText}>Retry</Text>
-        </TouchableOpacity>
+        <Text style={styles.loadingText}>No matches found.</Text>
       </View>
     );
   }
 
-  const { shoes, accessories, layering, reasoning } = advice ?? {};
-  const hasAny = (shoes && shoes.length > 0) || (accessories && accessories.length > 0) || (layering && layering.length > 0);
+  const openLink = async (url: string) => {
+    try {
+      const supported = await LinkingExpo.canOpenURL(url);
+      if (supported) await LinkingExpo.openURL(url);
+      else Alert.alert("Can't open link", url);
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    }
+  };
 
-  if (!hasAny) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.loadingText}>No style advice available for this item.</Text>
-      </View>
-    );
-  }
+  const selected = data.selectedItem;
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#333" />
-      }
-    >
-      <View style={styles.adviceSection}>
-        <Text style={styles.adviceTitle}>Style Match</Text>
-        {reasoning ? <Text style={styles.adviceReason}>{reasoning}</Text> : null}
-
-        {shoes && shoes.length > 0 && <SuggestionRow label="Shoes" items={shoes} />}
-        {accessories && accessories.length > 0 && <SuggestionRow label="Accessories" items={accessories} />}
-        {layering && layering.length > 0 && <SuggestionRow label="Layering" items={layering} />}
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Selected item hero */}
+      <View style={styles.hero}>
+        {selected.image_url ? (
+          <Image
+            source={{ uri: `${BASE_URL}${selected.image_url}` }}
+            style={styles.heroImage}
+          />
+        ) : (
+          <View style={[styles.heroImage, styles.heroPlaceholder]}>
+            <Text style={styles.heroInitial}>
+              {(selected.name || "?")[0]?.toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <Text style={styles.heroName}>{selected.name}</Text>
+        <Text style={styles.heroSub}>
+          {[selected.color, selected.category, selected.occasion_tag]
+            .filter(Boolean)
+            .map((s) => (s || "").toString())
+            .join(" • ")}
+        </Text>
       </View>
+
+      {/* Already in your wardrobe */}
+      <Section title="Already In Your Wardrobe" icon={House}>
+        {data.alreadyOwned.length === 0 ? (
+          <Empty text="Nothing else in your wardrobe pairs with this yet." />
+        ) : (
+          data.alreadyOwned.map((it, i) => (
+            <MatchCard key={`own-${i}`} item={it} onPress={() => {}} />
+          ))
+        )}
+      </Section>
+
+      {/* Matching bottoms */}
+      <MatchSection title="Matching Bottoms" icon={Shirt} items={data.matchingBottoms} />
+
+      {/* Matching tops */}
+      <MatchSection title="Matching Tops" icon={Shirt} items={data.matchingTops} />
+
+      {/* Footwear */}
+      <MatchSection title="Footwear" icon={Watch} items={data.matchingFootwear} />
+
+      {/* Accessories */}
+      <MatchSection title="Accessories" icon={Watch} items={data.matchingAccessories} />
+
+      {/* Layering */}
+      <MatchSection title="Layering" icon={Layers} items={data.layeringSuggestions} />
+
+      {/* Best color pairings */}
+      <ColorSection title="Best Color Pairings" icon={Palette} colors={data.recommendedColors} good />
+
+      {/* Avoid colors */}
+      <ColorSection title="Avoid These Colors" icon={XCircle} colors={data.avoidColors} good={false} />
+
+      {/* Outfit ideas */}
+      <Section title="Outfit Ideas" icon={Sparkles}>
+        <View style={styles.chipRow}>
+          {data.occasionOutfits.map((o: OccasionOutfit, i) => (
+            <View key={`occ-${i}`} style={styles.occasionChip}>
+              <Text style={styles.occasionChipText}>{o.name}</Text>
+            </View>
+          ))}
+        </View>
+      </Section>
+
+      {/* Shop matching items */}
+      <Section title="Shop Matching Items" icon={ShoppingBag}>
+        {data.shoppingSuggestions.map((s: ShoppingSuggestion, i) => (
+          <View key={`shop-${i}`} style={styles.shopBlock}>
+            <View style={styles.shopHead}>
+              <Text style={styles.shopName}>{s.item_name}</Text>
+              <Text style={styles.shopPct}>{s.match_percentage}% match</Text>
+            </View>
+            <Text style={styles.shopReason}>{s.reason}</Text>
+            <View style={styles.storeRow}>
+              {s.shopping_links.map((l, j) => (
+                <TouchableOpacity
+                  key={`${l.store}-${j}`}
+                  style={styles.storeBtn}
+                  onPress={() => openLink(l.url)}
+                >
+                  <Text style={styles.storeBtnText}>
+                    {l.store.charAt(0).toUpperCase() + l.store.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        ))}
+      </Section>
     </ScrollView>
     </SafeAreaView>
   );
 }
 
-function SuggestionRow({ label, items }: { label: string; items: SuggestionWithProducts[] }) {
+function Section({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ComponentType<LucideProps>;
+  children: React.ReactNode;
+}) {
   return (
-    <View style={styles.suggestionRow}>
-      <Text style={styles.suggestionLabel}>{label}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionScroll}>
-        {items.map((item, i) => (
-          <SuggestionCard key={`${label}-${i}`} item={item} />
-        ))}
-      </ScrollView>
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>
+        {Icon && <Icon size={18} strokeWidth={1.5} color={colors.accent} style={{ marginRight: spacing.xs }} />}
+        {title}
+      </Text>
+      {children}
     </View>
   );
 }
 
-function SuggestionCard({ item }: { item: SuggestionWithProducts }) {
-  const topProduct = item.products[0];
-  const extraCount = item.products.length - 1;
-  const productImage = topProduct?.image_url ? imageUrl(topProduct.image_url) : null;
-
-  const meeshoUrl = topProduct?.affiliate_link;
-  const googleUrl =
-    `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(item.suggestion)}`;
-
+function MatchSection({
+  title,
+  icon,
+  items,
+}: {
+  title: string;
+  icon?: React.ComponentType<LucideProps>;
+  items: StyleMatchItem[];
+}) {
+  if (!items || items.length === 0) return null;
   return (
-    <View style={styles.suggestionCard}>
-      <TouchableOpacity
-        activeOpacity={0.85}
-        onPress={() => openLink(meeshoUrl || googleUrl)}
-      >
-        <View style={styles.suggestionCardImgWrap}>
-          {productImage ? (
-            <Image source={{ uri: productImage }} style={styles.suggestionCardImg} />
-          ) : (
-            <View style={[styles.suggestionCardImg, styles.suggestionCardImgFallback]}>
-              <ShoppingBag size={32} color="#ccc" strokeWidth={1.5} />
-            </View>
-          )}
-          {topProduct && (
-            <View style={styles.suggestionSourceBadge}>
-              <Text style={styles.suggestionSourceText}>{topProduct.source}</Text>
-            </View>
-          )}
-        </View>
-        <Text style={styles.suggestionCardProduct} numberOfLines={2}>
-          {topProduct?.name || item.suggestion}
-        </Text>
-        {topProduct && topProduct.price > 0 && (
-          <Text style={styles.suggestionCardPrice}>
-            {formatPrice(topProduct.price, topProduct.currency)}
-          </Text>
-        )}
-        {extraCount > 0 && <Text style={styles.suggestionCardMore}>+{extraCount} more</Text>}
-      </TouchableOpacity>
-
-      <View style={styles.suggestionCardLinks}>
-        <TouchableOpacity
-          style={styles.suggestionCardLinkBtn}
-          onPress={() => openLink(meeshoUrl || googleUrl)}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <ShoppingBag size={16} color="#333" strokeWidth={1.5} />
-            <Text style={styles.suggestionCardLinkText}>Meesho</Text>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.suggestionCardLinkBtn}
-          onPress={() => openLink(googleUrl)}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Search size={16} color="#333" strokeWidth={1.5} />
-            <Text style={styles.suggestionCardLinkText}>Google</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.suggestionCardTag}>
-        <Text style={styles.suggestionCardTagText}>{item.suggestion}</Text>
-      </View>
-    </View>
+    <Section title={title} icon={icon}>
+      {items.map((it, i) => (
+        <MatchCard key={`${title}-${i}`} item={it} />
+      ))}
+    </Section>
   );
+}
+
+function MatchCard({ item, onPress }: { item: StyleMatchItem; onPress?: () => void }) {
+  const scoreColor =
+    item.match_percentage >= 85
+      ? colors.score.high
+      : item.match_percentage >= 70
+      ? colors.score.mid
+      : colors.score.low;
+  return (
+    <TouchableOpacity style={styles.matchCard} activeOpacity={0.9} onPress={onPress}>
+      <View style={styles.matchInfo}>
+        <View style={styles.matchNameRow}>
+          <Text style={styles.matchName}>{item.name}</Text>
+          {item.owned && <View style={styles.ownedBadge}>
+            <Text style={styles.ownedBadgeText}>OWNED</Text>
+          </View>}
+        </View>
+        <Text style={styles.matchReason}>{item.reason}</Text>
+      </View>
+      <View style={[styles.scoreBadge, { backgroundColor: scoreColor + "22" }]}>
+        <Text style={[styles.scoreText, { color: scoreColor }]}>
+          {item.match_percentage}%
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function ColorSection({
+  title,
+  colors: colorList,
+  good,
+  icon,
+}: {
+  title: string;
+  colors: string[];
+  good: boolean;
+  icon?: React.ComponentType<LucideProps>;
+}) {
+  if (!colorList || colorList.length === 0) return null;
+  return (
+    <Section title={title} icon={icon}>
+      <View style={styles.chipRow}>
+        {colorList.map((c, i) => (
+          <View
+            key={`col-${i}`}
+            style={[
+              styles.colorChip,
+              { borderColor: good ? colors.success : colors.danger },
+            ]}
+          >
+            <Text style={styles.colorChipText}>{c}</Text>
+          </View>
+        ))}
+      </View>
+    </Section>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return <Text style={styles.empty}>{text}</Text>;
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: spacing.xxl + spacing.sm },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl + 6 },
-  loadingText: { fontSize: fontSize.sm, color: colors.text.tertiary, marginTop: spacing.sm + 2, textAlign: "center" },
-  errorText: { fontSize: fontSize.sm, color: colors.danger, textAlign: "center", marginBottom: spacing.lg },
-  retryBtn: {
-    backgroundColor: colors.accent,
-    borderRadius: br.md,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm + 2,
-  },
-  retryBtnText: { color: colors.text.white, fontWeight: fontWeight.bold, fontSize: fontSize.sm },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl },
+  loadingText: { fontSize: fontSize.sm, color: colors.text.tertiary, marginTop: spacing.sm, textAlign: "center" },
 
-  adviceSection: {
-    marginTop: spacing.sm + 2,
+  hero: { alignItems: "center", padding: spacing.xl, backgroundColor: colors.surface },
+  heroImage: { width: 140, height: 140, borderRadius: br.lg, backgroundColor: "#e0e0e0" },
+  heroPlaceholder: { alignItems: "center", justifyContent: "center" },
+  heroInitial: { fontSize: fontSize.display, fontWeight: fontWeight.extrabold, color: colors.text.light },
+  heroName: { fontSize: fontSize.xl, fontWeight: fontWeight.extrabold, marginTop: spacing.md },
+  heroSub: { fontSize: fontSize.xs, color: colors.text.tertiary, marginTop: spacing.xs, textTransform: "capitalize" },
+
+  section: {
+    marginTop: spacing.sm,
     backgroundColor: colors.surface,
-    paddingVertical: spacing.sm + 6,
+    paddingVertical: spacing.lg,
     paddingHorizontal: spacing.lg,
   },
-  adviceTitle: { fontSize: fontSize.base + 1, fontWeight: fontWeight.extrabold, marginBottom: spacing.xs },
-  adviceReason: {
-    fontSize: fontSize.xs + 1,
-    color: "#666",
-    fontStyle: "italic",
-    marginBottom: spacing.md,
-    lineHeight: 18,
-  },
+  sectionTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold, marginBottom: spacing.sm },
 
-  suggestionRow: { marginBottom: spacing.sm },
-  suggestionLabel: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
-    color: colors.text.light,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: spacing.xs + 2,
-  },
-  suggestionScroll: { gap: spacing.sm + 2, paddingRight: spacing.lg },
-  suggestionCard: {
-    width: 200,
+  matchCard: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#fafafa",
     borderRadius: br.md,
-    overflow: "hidden",
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: MIN_TOUCH_TARGET,
+    ...shadow.sm,
+  },
+  matchInfo: { flex: 1, marginRight: spacing.sm },
+  matchNameRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  matchName: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: colors.text.primary },
+  matchReason: { fontSize: fontSize.xs, color: colors.text.secondary, marginTop: spacing.xs },
+  ownedBadge: {
+    backgroundColor: colors.success + "22",
+    borderRadius: br.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs - 2,
+  },
+  ownedBadgeText: { fontSize: fontSize.xs - 3, fontWeight: fontWeight.extrabold, color: colors.success },
+  scoreBadge: { borderRadius: br.sm, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs + 2 },
+  scoreText: { fontSize: fontSize.sm, fontWeight: fontWeight.extrabold },
+
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  colorChip: {
+    borderRadius: br.lg,
+    borderWidth: 1.5,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    backgroundColor: colors.surface,
+  },
+  colorChipText: { fontSize: fontSize.xs, fontWeight: fontWeight.semibold, color: colors.accent },
+
+  occasionChip: {
+    backgroundColor: colors.accent,
+    borderRadius: br.lg,
+    paddingHorizontal: spacing.sm + 6,
+    paddingVertical: spacing.sm,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: "center",
+  },
+  occasionChipText: { fontSize: fontSize.xs + 1, fontWeight: fontWeight.semibold, color: colors.text.white },
+
+  empty: { fontSize: fontSize.xs + 1, color: colors.text.muted, fontStyle: "italic" },
+
+  shopBlock: {
+    backgroundColor: "#fafafa",
+    borderRadius: br.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm + 2,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  suggestionCardImgWrap: { position: "relative" },
-  suggestionCardImg: { width: "100%", height: 200, backgroundColor: "#e0e0e0" },
-  suggestionCardImgPlaceholder: {},
-  suggestionCardImgFallback: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  suggestionCardFallbackIcon: { fontSize: fontSize.xxl + 8, opacity: 0.3 },
-  suggestionSourceBadge: {
-    position: "absolute",
-    top: spacing.sm,
-    left: spacing.sm,
-    backgroundColor: "rgba(0,0,0,0.65)",
-    borderRadius: br.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs - 1,
-  },
-  suggestionSourceText: { fontSize: 11, fontWeight: fontWeight.bold, color: colors.text.white, textTransform: "capitalize" },
-  suggestionCardProduct: { fontSize: fontSize.xs + 1, fontWeight: fontWeight.bold, color: "#222", margin: spacing.sm, marginBottom: spacing.xs - 2 },
-  suggestionCardPrice: { fontSize: fontSize.sm + 1, fontWeight: fontWeight.extrabold, color: colors.accent, marginHorizontal: spacing.sm, marginBottom: spacing.xs },
-  suggestionCardMore: { fontSize: 11, fontWeight: fontWeight.semibold, color: "#6C5CE7", marginHorizontal: spacing.sm, marginBottom: spacing.sm },
-  suggestionCardTag: {
-    backgroundColor: "#f0eeff",
-    borderTopWidth: 1,
-    borderTopColor: "#e8e5ff",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: br.sm - 1,
-  },
-  suggestionCardTagText: { fontSize: 11, fontWeight: fontWeight.semibold, color: "#6C5CE7" },
-  suggestionCardLinks: {
+  shopHead: {
     flexDirection: "row",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs + 2,
-  },
-  suggestionCardLinkBtn: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-    borderRadius: br.sm,
-    paddingVertical: br.sm - 1,
+    justifyContent: "space-between",
     alignItems: "center",
   },
-  suggestionCardLinkText: { fontSize: 11, fontWeight: fontWeight.bold, color: "#444" },
-  suggestionCardFallback: { fontSize: fontSize.xs, color: colors.text.muted, fontStyle: "italic", margin: spacing.sm, marginTop: 0 },
+  shopName: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: colors.text.primary },
+  shopPct: { fontSize: fontSize.xs, fontWeight: fontWeight.bold, color: colors.success },
+  shopReason: { fontSize: fontSize.xs, color: colors.text.secondary, marginTop: spacing.xs, marginBottom: spacing.sm + 2 },
+  storeRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  storeBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: br.sm + 2,
+    paddingHorizontal: spacing.md,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  storeBtnText: { fontSize: fontSize.xs, fontWeight: fontWeight.semibold, color: colors.text.white },
 });

@@ -180,7 +180,7 @@ export default function CaptureScreen() {
     return (
       <View style={styles.cameraContainer}>
         <View style={styles.cameraWrap}>
-          <CameraView ref={cameraRef} style={styles.camera} facing="back" />
+          <CameraView ref={cameraRef} style={styles.camera} facing={isBodyPhoto ? "front" : "back"} />
           {isBodyPhoto && <SilhouetteOverlay />}
         </View>
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Alert,
+  FlatList,
   Image,
   ScrollView,
   StyleSheet,
@@ -10,10 +11,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
-import { clothingApi, ClothingItem } from "../../lib/api";
+import { clothingApi, ClothingItem, SuggestionMatch } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
 import { Sparkles } from "../../lib/icons";
-import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../../theme/tokens";
+import { borderRadius as br, colors, fontSize, fontWeight, spacing, shadow } from "../../theme/tokens";
 
 const CATEGORY_COLORS: Record<string, string> = {
   top: "#4A90D9",
@@ -24,22 +25,53 @@ const CATEGORY_COLORS: Record<string, string> = {
   accessory: "#E74C3C",
 };
 
+const COMPLEMENTARY: Record<string, string[]> = {
+  top: ["bottom", "footwear"],
+  bottom: ["top", "footwear"],
+  dress: ["footwear", "accessory"],
+  footwear: ["top", "bottom"],
+  outerwear: ["top", "bottom"],
+  accessory: ["top", "bottom"],
+};
+
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const [item, setItem] = useState<ClothingItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [imgFailed, setImgFailed] = useState(false);
+  const [matches, setMatches] = useState<SuggestionMatch[]>([]);
+  const [matchesLoading, setMatchesLoading] = useState(false);
 
   useEffect(() => {
     navigation.setOptions({ title: "Item Details", headerShown: true });
   }, [navigation]);
+
+  const loadMatches = async (item: ClothingItem) => {
+    const cats = COMPLEMENTARY[item.category];
+    if (!cats || cats.length === 0) return;
+    setMatchesLoading(true);
+    try {
+      const all: SuggestionMatch[] = [];
+      for (const cat of cats) {
+        const res = await clothingApi.suggestions(item.id, cat);
+        all.push(...res.wardrobe_matches);
+      }
+      all.sort((a, b) => b.color_harmony_score - a.color_harmony_score);
+      setMatches(all);
+    } catch {
+      // silently fail
+    } finally {
+      setMatchesLoading(false);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
       try {
         const data = await clothingApi.get(Number(id));
         setItem(data);
+        loadMatches(data);
       } catch (e: any) {
         Alert.alert("Error", e.message);
         router.back();
@@ -121,6 +153,51 @@ export default function ItemDetailScreen() {
         <TagRow label="Formality" value={item.formality} />
       </View>
 
+      {matches.length > 0 && (
+        <View style={styles.matchesSection}>
+          <Text style={styles.matchesTitle}>
+            Match from your wardrobe
+          </Text>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={matches}
+            keyExtractor={(m) => String(m.id)}
+            contentContainerStyle={styles.matchesList}
+            renderItem={({ item: m }) => (
+              <TouchableOpacity
+                style={styles.matchCard}
+                onPress={() => router.push(`/wardrobe/${m.id}`)}
+              >
+                {m.image_url ? (
+                  <Image
+                    source={{ uri: `${BASE_URL}${m.image_url}` }}
+                    style={styles.matchImage}
+                  />
+                ) : (
+                  <View style={[styles.matchImage, styles.matchImagePlaceholder]}>
+                    <Text style={styles.matchPlaceholderText}>{m.name?.[0] || m.category[0].toUpperCase()}</Text>
+                  </View>
+                )}
+                <View style={[styles.matchBadge, { backgroundColor: CATEGORY_COLORS[m.category] || "#999" }]}>
+                  <Text style={styles.matchBadgeText}>{m.category}</Text>
+                </View>
+                <Text style={styles.matchName} numberOfLines={1}>{m.name || "Unnamed"}</Text>
+                <Text style={styles.matchScore}>
+                  {(m.color_harmony_score * 100).toFixed(0)}% match
+                </Text>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      )}
+
+      {matchesLoading && (
+        <View style={styles.matchesSection}>
+          <Text style={styles.matchesTitle}>Finding matches...</Text>
+        </View>
+      )}
+
       <TouchableOpacity
         style={styles.styleMatchButton}
         onPress={() => router.push(`/style-match?id=${item.id}`)}
@@ -162,6 +239,31 @@ const styles = StyleSheet.create({
   },
   tagLabel: { fontSize: fontSize.sm, color: colors.text.light, textTransform: "capitalize" },
   tagValue: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.accent, textTransform: "capitalize" },
+
+  matchesSection: { marginTop: spacing.lg, paddingLeft: spacing.lg },
+  matchesTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold, color: colors.accent, marginBottom: spacing.sm + 2 },
+  matchesList: { gap: spacing.md, paddingRight: spacing.lg },
+  matchCard: {
+    width: 130,
+    backgroundColor: colors.surface,
+    borderRadius: br.md,
+    overflow: "hidden",
+    ...shadow.sm,
+  },
+  matchImage: { width: "100%", height: 150, backgroundColor: "#e0e0e0" },
+  matchImagePlaceholder: { alignItems: "center", justifyContent: "center" },
+  matchPlaceholderText: { fontSize: fontSize.display - 4, fontWeight: fontWeight.bold, color: colors.text.light },
+  matchBadge: {
+    position: "absolute",
+    top: spacing.sm,
+    left: spacing.sm,
+    borderRadius: br.sm - 1,
+    paddingHorizontal: spacing.sm - 1,
+    paddingVertical: spacing.xs - 2,
+  },
+  matchBadgeText: { color: colors.text.white, fontSize: 9, fontWeight: fontWeight.bold, textTransform: "uppercase" },
+  matchName: { fontSize: fontSize.xs, fontWeight: fontWeight.semibold, color: colors.accent, paddingHorizontal: spacing.sm, paddingTop: spacing.sm },
+  matchScore: { fontSize: fontSize.xs - 1, color: colors.text.muted, paddingHorizontal: spacing.sm, paddingBottom: spacing.sm },
 
   styleMatchButton: {
     marginHorizontal: spacing.lg,

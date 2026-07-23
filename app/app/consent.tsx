@@ -28,7 +28,7 @@ export default function ConsentScreen() {
     try {
       const status = await consentApi.getStatus(DEMO_USER_ID);
       if (status.photo_consent) {
-        router.back();
+        router.replace("/(tabs)");
       }
     } catch {
       // server unreachable — let user consent again
@@ -46,7 +46,7 @@ export default function ConsentScreen() {
     setSubmitting(true);
     try {
       await consentApi.giveConsent(DEMO_USER_ID);
-      router.back();
+      router.replace("/(tabs)");
     } catch (e: any) {
       // error handled silently; user can retry
     } finally {

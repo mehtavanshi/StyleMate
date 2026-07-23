@@ -20,6 +20,7 @@ export {
   PlusCircle,
   RefreshCw,
   Search,
+  Settings,
   Shirt,
   ShoppingBag,
   Sparkles,

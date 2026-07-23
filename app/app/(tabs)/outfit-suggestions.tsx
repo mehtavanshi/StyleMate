@@ -235,6 +235,7 @@ export default function OutfitSuggestionsScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const [shoppingGroups, setShoppingGroups] = useState<ShoppingGroup[]>([]);
   const [shoppingLoading, setShoppingLoading] = useState(true);
+  const [shoppingError, setShoppingError] = useState(false);
   const [hasPhoto, setHasPhoto] = useState(false);
   const [tryOnStates, setTryOnStates] = useState<Record<string, TryOnCardState>>({});
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
@@ -255,9 +256,11 @@ export default function OutfitSuggestionsScreen() {
         occasion_tag: selectedOccasion || undefined,
       });
       setShoppingGroups(data);
+      setShoppingError(false);
     } catch (e: any) {
       console.warn("Shopping suggestions failed:", e.message);
       setShoppingGroups([]);
+      setShoppingError(true);
     } finally {
       setShoppingLoading(false);
     }
@@ -595,6 +598,16 @@ export default function OutfitSuggestionsScreen() {
     }
 
     if (!shoppingGroups || shoppingGroups.length === 0) {
+      if (shoppingError) {
+        return (
+          <View style={styles.shoppingSection}>
+            <Text style={styles.shoppingHeading}>Complete the Look</Text>
+            <Text style={styles.shoppingErrorText}>
+              Could not load suggestions. Check your connection.
+            </Text>
+          </View>
+        );
+      }
       return (
         <View style={styles.shoppingSection}>
           <Text style={styles.shoppingHeading}>Complete the Look</Text>
@@ -975,6 +988,12 @@ const styles = StyleSheet.create({
   shoppingEmpty: {
     fontSize: fontSize.sm,
     color: colors.text.tertiary,
+    paddingHorizontal: spacing.lg,
+    lineHeight: 22,
+  },
+  shoppingErrorText: {
+    fontSize: fontSize.sm,
+    color: colors.danger,
     paddingHorizontal: spacing.lg,
     lineHeight: 22,
   },

@@ -3,8 +3,10 @@ import {
   Alert,
   FlatList,
   Image,
+  RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -60,6 +62,8 @@ function WardrobeGridCell({ item }: { item: ClothingItem }) {
 export default function WardrobeScreen() {
   const [items, setItems] = useState<ClothingItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [selectedOccasions, setSelectedOccasions] = useState<Set<string>>(new Set());
   const [selectedTargetGenders, setSelectedTargetGenders] = useState<Set<string>>(new Set());
@@ -72,8 +76,21 @@ export default function WardrobeScreen() {
       Alert.alert("Error", e.message || "Failed to load wardrobe.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const data = await clothingApi.list();
+      setItems(data);
+    } catch (e: any) {
+      Alert.alert("Error", e.message || "Failed to load wardrobe.");
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -98,13 +115,14 @@ export default function WardrobeScreen() {
 
   const filtered = useMemo(() => {
     return items.filter((item) => {
+      const searchMatch = !search.trim() || (item.name || "").toLowerCase().includes(search.toLowerCase());
       const catMatch = selectedCategories.size === 0 || selectedCategories.has(item.category);
       const itemOccasions = (item.occasion_tag || "").split(",").map(s => s.trim());
       const occMatch = selectedOccasions.size === 0 || itemOccasions.some(o => selectedOccasions.has(o));
       const genderMatch = selectedTargetGenders.size === 0 || selectedTargetGenders.has(item.target_gender || "unisex");
-      return catMatch && occMatch && genderMatch;
+      return searchMatch && catMatch && occMatch && genderMatch;
     });
-  }, [items, selectedCategories, selectedOccasions, selectedTargetGenders]);
+  }, [items, search, selectedCategories, selectedOccasions, selectedTargetGenders]);
 
   const hasFilters = selectedCategories.size > 0 || selectedOccasions.size > 0 || selectedTargetGenders.size > 0;
 
@@ -152,12 +170,20 @@ export default function WardrobeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.filterBar}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search items..."
+          placeholderTextColor={colors.text.muted}
+          value={search}
+          onChangeText={setSearch}
+          clearButtonMode="while-editing"
+        />
         {renderChipRow("Category", CATEGORIES, selectedCategories, setSelectedCategories)}
         {renderChipRow("Occasion", OCCASIONS, selectedOccasions, setSelectedOccasions)}
         {renderChipRow("Gender", TARGET_GENDERS, selectedTargetGenders, setSelectedTargetGenders)}
-        {hasFilters && (
-          <TouchableOpacity style={styles.clearBtn} onPress={clearFilters}>
-            <Text style={styles.clearBtnText}>Clear filters</Text>
+        {(hasFilters || search.trim()) && (
+          <TouchableOpacity style={styles.clearBtn} onPress={() => { clearFilters(); setSearch(""); }}>
+            <Text style={styles.clearBtnText}>Clear all</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -181,6 +207,9 @@ export default function WardrobeScreen() {
           columnWrapperStyle={styles.gridRow}
           contentContainerStyle={styles.gridContainer}
           renderItem={renderItem}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
+          }
         />
       )}
     </SafeAreaView>
@@ -194,6 +223,17 @@ const styles = StyleSheet.create({
 
   // Filter bar
   filterBar: { backgroundColor: colors.surface, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  searchInput: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm + 2,
+    marginBottom: spacing.xs,
+    backgroundColor: "#f0f0f0",
+    borderRadius: br.sm + 2,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: fontSize.sm + 1,
+    color: colors.text.primary,
+  },
   filterSection: { paddingTop: spacing.sm + 2 },
   filterLabel: { fontSize: fontSize.xs, fontWeight: fontWeight.bold, color: colors.text.light, textTransform: "uppercase", paddingHorizontal: spacing.lg, marginBottom: spacing.xs + 2 },
   chipList: { paddingHorizontal: spacing.md },

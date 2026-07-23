@@ -191,12 +191,14 @@ export default function CalendarScreen() {
     loadSuggestions(next);
   };
 
-  const handleLock = async (suggestionIndex: number) => {
+  const handleLock = async (suggestion: OutfitSuggestion) => {
     if (!activeEntry) return;
-    setLockingIndex(suggestionIndex);
+    const outfitId = suggestion.items[0]?.id;
+    if (!outfitId) return;
+    setLockingIndex(outfitId);
     try {
       const updated = await calendarApi.update(activeEntry.id, {
-        locked_outfit_id: suggestionIndex,
+        locked_outfit_id: outfitId,
       });
       setEntries((prev) =>
         prev.map((e) => (e.id === updated.id ? updated : e))
@@ -339,8 +341,9 @@ export default function CalendarScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.suggestionRow}
                 renderItem={({ item: sug, index }) => {
-                  const isLocked = activeEntry?.locked_outfit_id === index;
-                  const isLocking = lockingIndex === index;
+                  const isLocked = activeEntry?.locked_outfit_id != null &&
+                    sug.items.some((it) => it.id === activeEntry!.locked_outfit_id);
+                  const isLocking = lockingIndex != null && sug.items.some((it) => it.id === lockingIndex);
                   return (
                     <View
                       style={[
@@ -369,7 +372,7 @@ export default function CalendarScreen() {
                           styles.lockBtn,
                           isLocked && styles.lockBtnDone,
                         ]}
-                        onPress={() => handleLock(index)}
+                        onPress={() => handleLock(sug)}
                         disabled={isLocking || isLocked}
                       >
                         <Text

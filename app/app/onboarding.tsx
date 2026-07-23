@@ -14,7 +14,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useForm } from "react-hook-form";
 import { router, useNavigation } from "expo-router";
 
-import { usersApi } from "../lib/api";
+import { DEMO_USER_ID, usersApi } from "../lib/api";
 import {
   BODY_TYPE_ICONS,
   AppleIcon,
@@ -31,7 +31,6 @@ import {
 } from "../lib/onboarding/scoreBodyType";
 
 const ONBOARDING_FLAG = "onboarding_complete";
-const DEMO_USER_ID = 1;
 
 interface Option<T extends string> {
   value: T;

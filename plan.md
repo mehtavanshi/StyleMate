@@ -1,3 +1,522 @@
+# StyleMate — Project Plan & Progress
+
+## Completed Work (beyond original prompts)
+
+### Infrastructure & Code Quality
+- **Design token system** — `app/theme/tokens.ts` with shared `spacing`, `fontSize`, `fontWeight`, `borderRadius`, `colors`, `shadow` — refactored across all 16+ screens.
+- **Safe area** — `SafeAreaProvider`/`SafeAreaView` applied to all screens.
+- **Lucide icon migration** — Replaced all unicode/emoji icons with `lucide-react-native` via a barrel export (`app/lib/icons.tsx`).
+- **TypeScript** — Project compiles with zero TS errors.
+
+### Features Implemented
+- Wardrobe CRUD, AI tagging, outfit suggestions (pairing engine with color theory + FashionCLIP embeddings + ML blending).
+- Calendar with occasion planning and outfit locking.
+- Body type onboarding questionnaire with style-tag bias in scoring.
+- Like/dislike feedback loop with LightFM ML integration.
+- Virtual try-on via async job system (Celery + HF Space or local Gradio).
+- Shopping suggestions with gap detection and multi-store links (Meesho, Myntra, Ajio, Amazon, Flipkart, Google Shopping).
+- Style match — per-item compatibility scoring across all partner categories.
+- Complete outfit — given one item, finds the complementary category match.
+- **Image crop & rotate editor** — `app/components/ImageEditor.tsx` with draggable crop handles and 90° rotation, integrated into photo capture flow.
+- **Wardrobe match suggestions** — detail page shows complementary items from own wardrobe, scored by color harmony.
+
+### Current Known Issues (to fix)
+- (none — all identified issues have been resolved)
+
+---
+
+## Improvement Plan
+
+### Phase 1 — Fix & Cleanup ✅
+- [x] Front camera for body selfies (`capture.tsx:183`)
+- [x] Fix calendar lock bug (pass real outfit ID)
+- [x] Clean up code smells (deduplicate `DEMO_USER_ID`, fix consent navigation)
+- [x] Delete dead duplicate screens (`app/app/onboarding.tsx`, `app/app/style-match.tsx`)
+
+### Phase 2 — Feature Additions ✅
+- [x] Settings navigation entry (gear icon in header)
+- [x] Wardrobe search bar (text filter by name)
+- [x] Wardrobe pull-to-refresh (`RefreshControl`)
+- [x] Fix misleading empty state (distinguish API failure vs empty)
+- [x] Fix add-item form reset (preserve state across navigations)
+
+### Phase 3 — Home Screen Redesign ✅
+- [x] Today's Outfit suggestion card
+- [x] Wardrobe stats (item count by category)
+- [x] Calendar preview (next locked/suggested outfit)
+
+---
+
+All planned improvements complete.
+
+---
+
+## Phase 4 — AI Feature Expansion
+
+### Overview
+
+Eight AI-powered features planned, leveraging existing Gemini integration (`style_advisor.py`), FashionCLIP embeddings (`style_embeddings.py`), and the blended scoring engine (`pairing_engine.py`). Ordered by effort (quick wins first).
+
+| Tier | Feature | Effort | Depends On |
+|------|---------|--------|------------|
+| 1 | Closet Gap Analysis | ~1 file server, ~30 lines client | `find_gaps()` exists |
+| 1 | AI Stylist (outfit explanations) | ~40 lines server, ~20 lines client | Gemini + pairing engine |
+| 2 | Smart Outfit Generator | ~60 lines server + prompt, ~40 lines client | Tier 1b pattern |
+| 2 | Weather-Based Recommendations | ~80 lines server, ~40 lines client | `WEATHER_API_KEY` |
+| 2 | AI Packing Assistant | ~70 lines server, ~50 lines client | Gemini + wardrobe |
+| 3 | Capsule Wardrobe Builder | ~120 lines server (algorithm), ~60 lines client | Pairing engine |
+| 3 | AI Fashion Rating (selfie) | ~50 lines server, ~80 lines client | Gemini Vision |
+| 3 | Outfit Calendar Enhancements | ~40 lines server, ~30 lines client | Calendar exists |
+
+---
+
+### Feature 4.1 — Closet Gap Analysis
+
+**Goal:** Expose existing `find_gaps()` via endpoint + shopping links, show on home screen.
+
+**Server:**
+- File: `server/app/pairing_engine.py` — already done (`find_gaps()` at line 212)
+- File: `server/app/routers/clothing.py` — add `GET /closet-gaps` endpoint:
+  ```python
+  @router.get("/closet-gaps")
+  def get_closet_gaps(user_id: int = 1, db: Session = Depends(get_db)):
+      gaps = find_gaps(user_id, db)
+      results = []
+      for gap in gaps:
+          query = build_search_query(gap, db)
+          results.append({
+              "missing_category": gap.missing_category,
+              "reason": gap.reason,
+              "search_query": query,
+          })
+      return results
+  ```
+- File: `server/app/schemas.py` — add `ClosetGapResponse` pydantic model
+
+**Client:**
+- File: `app/lib/api.ts` — add `wardrobeApi.gaps()` method
+- File: `app/app/(tabs)/index.tsx` — add "Closet Gaps" section below wardrobe stats:
+  - `FlatList` of gap cards with category icon, reason text
+  - When tapped: open shopping search for the gap category
+  - Empty state: "Your wardrobe looks well-rounded!" if no gaps
+
+---
+
+### Feature 4.2 — AI Stylist (Outfit Explanations)
+
+**Goal:** Given an outfit's item IDs, generate a natural-language "stylist" explanation of why they work together.
+
+**Server:**
+- File: `server/app/style_advisor.py` — add `explain_outfit()` function:
+  ```python
+  def explain_outfit(items: list[ClothingItem], db: Session) -> str:
+      # Build item descriptions + pair scores
+      # Call Gemini with stylist persona prompt
+      # Return 2-3 conversational sentences
+  ```
+  Prompt: *"You are a professional stylist. These items are being worn together: {item_descriptions}. The color harmony score is {color_score}, fit contrast is {fit_score}, fabric affinity is {fabric_score}. Explain in 2-3 conversational sentences why this outfit works (or doesn't work). Be specific — mention colors, textures, silhouettes."*
+
+- File: `server/app/routers/style_advice.py` — add `POST /explain-outfit` endpoint:
+  ```python
+  class ExplainOutfitIn(BaseModel):
+      outfit_item_ids: list[int]
+  
+  @router.post("/explain-outfit")
+  def explain_outfit_endpoint(payload: ExplainOutfitIn, db: Session = Depends(get_db)):
+      items = db.query(ClothingItem).filter(ClothingItem.id.in_(payload.outfit_item_ids)).all()
+      explanation = explain_outfit(items, db)
+      return {"explanation": explanation}
+  ```
+- Cache results per `sorted(item_ids)` tuple for 30 min.
+
+**Client:**
+- File: `app/lib/api.ts` — add `styleAdviceApi.explain()` method
+- File: `app/app/(tabs)/outfit-suggestions.tsx` — add expandable "Why this works" section on each suggestion card:
+  - Collapsed state: small "Why this works?" text button
+  - Tapped: calls API, shows explanation in expandable panel with a fade-in animation
+  - Loading state: shimmer placeholder
+
+---
+
+### Feature 4.3 — Smart Outfit Generator
+
+**Goal:** Accept natural language queries ("something for an interview", "beach wedding") and generate outfits with confidence badges.
+
+**Server:**
+- File: `server/app/services/nlp_router.py` — new module:
+  ```python
+  import json
+  import httpx
+  from app.routers.tagging import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_MODEL
+  
+  def parse_query_to_params(query: str) -> dict:
+      """Use Gemini to extract structured outfit params from a free-text query."""
+      prompt = f"""Extract structured outfit parameters from this user request.
+  Return ONLY valid JSON with NO markdown formatting.
+  User request: "{query}"
+  
+  Fields:
+  - occasion_tag: "casual" | "office" | "ethnic" | "party" | "formal" | "loungewear" | "travel" | null
+  - formality_level: 1-5 integer (1=casual, 5=black tie) | null
+  - season: "spring" | "summer" | "fall" | "winter" | "all-season" | null
+  - target_gender: "men" | "women" | "unisex" | null
+  - vibe: "minimal" | "colorful" | "classic" | "edgy" | "bohemian" | "sporty" | null
+  
+  If a field can't be inferred, set it to null. Do NOT guess.
+  """
+      # ... call Gemini API, parse response, return dict
+  ```
+
+- File: `server/app/routers/outfits.py` — add `POST /smart-outfit` endpoint:
+  ```python
+  class SmartOutfitIn(BaseModel):
+      query: str
+      limit: int = 5
+  
+  @router.post("/smart-outfit", response_model=list[OutfitSuggestionResponse])
+  def smart_outfit(payload: SmartOutfitIn, db: Session = Depends(get_db)):
+      params = parse_query_to_params(payload.query)
+      results = suggest_outfits(db, user_id=1,
+          occasion_tag=params.get("occasion_tag"),
+          target_gender=params.get("target_gender"),
+          limit=payload.limit,
+      )
+      # Add confidence level based on how many params were inferred
+      # ...
+      return results
+  ```
+
+**Client:**
+- File: `app/lib/api.ts` — add `outfitApi.smartSuggest()` method
+- File: `app/app/(tabs)/outfit-suggestions.tsx` — add text input at top:
+  - Placeholder: "Describe what you need... (e.g. 'interview tomorrow')"
+  - "Generate" button next to input
+  - Results shown as highlighted cards with confidence badge (e.g. "High confidence match")
+  - Preserve existing tab-based filters as secondary
+
+---
+
+### Feature 4.4 — Weather-Based Recommendations
+
+**Goal:** Fetch weather for user location, filter wardrobe by temp-appropriate items, suggest top outfit.
+
+**Server:**
+- File: `server/app/services/weather_service.py` — new module:
+  ```python
+  import httpx
+  import os
+  
+  WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")
+  WEATHER_API_URL = "https://api.openweathermap.org/data/2.5/weather"
+  
+  TEMP_RULES = {
+      (35, 50): {"season": "summer", "fabrics": ["cotton", "linen", "silk"]},
+      (20, 35): {"season": "spring", "fabrics": ["cotton", "denim", "knit"]},
+      (10, 20): {"season": "fall", "fabrics": ["cotton", "wool", "denim"]},
+      (-10, 10): {"season": "winter", "fabrics": ["wool", "leather", "knit"]},
+  }
+  
+  def get_weather(city: str = "Mumbai") -> dict:
+      # Call OpenWeatherMap, return temp_c, condition, humidity
+      # ...
+  
+  def filter_items_by_weather(items: list, temp_c: float) -> list:
+      # Match temp range → season/fabric filter
+      # ...
+  ```
+
+- File: `server/app/routers/outfits.py` — add `GET /weather-outfit` endpoint:
+  ```python
+  @router.get("/weather-outfit", response_model=OutfitSuggestionResponse | None)
+  def weather_outfit(city: str = "Mumbai", db: Session = Depends(get_db)):
+      weather = get_weather(city)
+      items = db.query(ClothingItem).filter(ClothingItem.user_id == 1).all()
+      filtered = filter_items_by_weather(items, weather["temp_c"])
+      # Run suggest_outfits on filtered subset
+      # Return top result + weather info
+  ```
+
+**Client:**
+- File: `app/lib/api.ts` — add `outfitApi.weatherSuggest()` method
+- File: `app/app/(tabs)/index.tsx` — add weather widget:
+  - Shows temperature + condition icon
+  - "Today's Pick" outfit card below — tapping opens outfit detail
+  - Uses device location (Expo Location) or default city
+- File: `app/app.json` — add location permission strings
+
+**Config:**
+- Add `WEATHER_API_KEY` to `.env` + `server/app/config.py`
+
+---
+
+### Feature 4.5 — AI Packing Assistant
+
+**Goal:** Given destination, duration, purpose → generate packing list from user's wardrobe + shopping links for missing items.
+
+**Server:**
+- File: `server/app/services/packing_service.py` — new module:
+  ```python
+  def generate_packing_list(destination: str, duration: int, purpose: str, user_id: int, db: Session) -> dict:
+      # Gemini prompt: "For a {duration}-day trip to {destination} for {purpose},
+      # list the ideal clothing items by category with quantities needed."
+      # Match against user's wardrobe, find gaps
+      # Return: { selected_items: [...], missing_groups: [...], shopping_links: {...} }
+  ```
+
+- File: `server/app/routers/packing.py` — new router:
+  ```python
+  router = APIRouter(prefix="/packing", tags=["packing"])
+  
+  class PackingRequest(BaseModel):
+      destination: str
+      duration: int
+      purpose: str  # "leisure" | "business" | "beach" | "wedding" | "adventure"
+  
+  @router.post("/packing-list")
+  def get_packing_list(req: PackingRequest, db: Session = Depends(get_db)):
+      return generate_packing_list(req.destination, req.duration, req.purpose, 1, db)
+  ```
+
+- File: `server/app/main.py` — register `packing.router`
+
+**Client:**
+- File: `app/app/(tabs)/packing.tsx` — new screen:
+  - Inputs: destination (text), duration (number picker), purpose (dropdown)
+  - "Generate" button → calls API
+  - Results: two sections:
+    1. "From Your Wardrobe" — checklist of items with quantity needed, tap to check off
+    2. "Items to Buy" — missing categories with shopping links
+  - Save/share generated list
+
+- File: `app/app/(tabs)/_layout.tsx` — add Packing tab (luggage icon)
+- File: `app/lib/api.ts` — add `packingApi.generate()` method
+
+---
+
+### Feature 4.6 — Capsule Wardrobe Builder
+
+**Goal:** Algorithm that selects N items from wardrobe maximizing total outfit combinations.
+
+**Server:**
+- File: `server/app/pairing_engine.py` — add `build_capsule()` function:
+  ```python
+  def build_capsule(user_id: int, target_count: int = 20,
+                    occasion_filter: str | None = None,
+                    db: Session | None = None) -> dict:
+      # 1. Load user's items, optionally filtered by occasion
+      # 2. Score every possible pair using existing score_pair()
+      # 3. Greedy selection:
+      #    a. Start with neutral core items (white/black/beige tops + bottoms)
+      #    b. Iteratively add the item that creates the most NEW valid outfit combinations
+      #    c. Track which pairs are already "covered"
+      #    d. Stop when target_count reached no improvement possible
+      # 4. Return: { items: [...], total_outfits: N, pair_count: N, categories: {...} }
+  ```
+
+- File: `server/app/routers/outfits.py` — add `POST /capsule-wardrobe` endpoint:
+  ```python
+  class CapsuleRequest(BaseModel):
+      target_item_count: int = 20
+      occasion_tag: str | None = None
+  
+  @router.post("/capsule-wardrobe")
+  def capsule_wardrobe(req: CapsuleRequest, db: Session = Depends(get_db)):
+      return build_capsule(1, target_count=req.target_item_count,
+                          occasion_filter=req.occasion_tag, db=db)
+  ```
+
+**Client:**
+- File: `app/app/(tabs)/capsule.tsx` — new screen:
+  - Top: target count slider (10-40) with "M items → N outfits" live counter
+  - Results grid: selected items grouped by category
+  - Ability to tap an item to "lock" it (keep it in capsule)
+  - "Regenerate" button
+  - Stats card: total possible outfits, categories covered, most-used items
+
+- File: `app/app/(tabs)/_layout.tsx` — add Capsule tab (diamond icon)
+- File: `app/lib/api.ts` — add `outfitApi.buildCapsule()` method
+
+---
+
+### Feature 4.7 — AI Fashion Rating (Selfie Analysis)
+
+**Goal:** Upload a full-body photo (reuse consent photo or new upload), get structured style rating from Gemini Vision.
+
+**Server:**
+- File: `server/app/services/fashion_rating_service.py` — new module:
+  ```python
+  def rate_outfit_photo(photo_url: str) -> dict:
+      """Send photo to Gemini Vision, get structured fashion rating."""
+      prompt = """Analyze this outfit photo as a professional fashion critic.
+  Rate on a scale of 1-10 for each:
+  - overall_style: overall visual appeal and coordination
+  - color_harmony: how well colors work together
+  - fit: how well clothes fit the wearer
+  - occasion_match: suitability for the inferred context
+  - silhouette_balance: proportions and visual weight
+  
+  Also suggest 3 specific, actionable improvements.
+  Return ONLY valid JSON with NO markdown formatting:
+  {
+    "overall_style": {"score": 0-10, "reason": "..."},
+    "color_harmony": {"score": 0-10, "reason": "..."},
+    "fit": {"score": 0-10, "reason": "..."},
+    "occasion_match": {"score": 0-10, "reason": "..."},
+    "silhouette_balance": {"score": 0-10, "reason": "..."},
+    "suggestions": ["...", "...", "..."],
+    "vibe_tags": ["...", "..."],
+    "primary_colors_detected": ["...", "..."]
+  }
+  """
+      # Call Gemini Vision with photo URL + prompt
+      # Parse JSON response
+      # Return dict
+  ```
+
+- File: `server/app/routers/fashion_rating.py` — new router:
+  ```python
+  router = APIRouter(prefix="/fashion-rating", tags=["fashion-rating"])
+  
+  class RatingRequest(BaseModel):
+      image_url: str
+      user_id: int = 1
+  
+  @router.post("/rate")
+  def rate_photo(req: RatingRequest):
+      return rate_outfit_photo(req.image_url)
+  ```
+
+- File: `server/app/main.py` — register `fashion_rating.router`
+
+**Client:**
+- File: `app/app/(tabs)/style-rating.tsx` — new screen:
+  - Shows user's existing consent photo or allows new upload
+  - "Rate My Style" button → calls API with loading spinner
+  - Results display:
+    - Animated score ring (overall_style as primary number)
+    - Sub-scores as progress bars (color_harmony, fit, etc.)
+    - Suggestion chips — tapping a chip shows detailed explanation
+    - Vibe tags as badges
+  - "Rate Again" button
+
+- File: `app/app/(tabs)/_layout.tsx` — add Style Rating tab (star icon)
+- File: `app/lib/api.ts` — add `fashionRatingApi.rate()` method
+
+---
+
+### Feature 4.8 — Outfit Calendar Enhancements
+
+**Goal:** Prevent repeat outfits within 30 days, show wear-frequency analytics, suggest diverse alternatives.
+
+**Server:**
+- New model field needed — verify if `OutfitFeedback` tracks liked outfits or just feedback. Use `CalendarEntry.locked_outfit_id` history to track what was worn when.
+- File: `server/app/services/calendar_service.py` — new module:
+  ```python
+  def get_wear_frequency(user_id: int, item_id: int, db: Session) -> int:
+      """Count how many times an item appears in locked calendar entries in last 30 days."""
+  
+  def get_item_wear_history(user_id: int, days: int = 30, db: Session = None) -> list[dict]:
+      """Return all items locked in calendar grouped by count, for analytics."""
+  ```
+
+- File: `server/app/routers/calendar.py` — add new endpoints:
+  ```python
+  @router.get("/calendar/analytics")
+  def calendar_analytics(user_id: int = 1, days: int = 30, db: Session = Depends(get_db)):
+      return get_item_wear_history(user_id, days, db)
+  
+  @router.get("/calendar/repeat-check")
+  def check_outfit_repeat(outfit_item_ids: str, db: Session = Depends(get_db)):
+      # Comma-separated IDs
+      # Check each item's wear frequency
+      # Return warnings for items worn >3 times
+  ```
+
+**Client:**
+- File: `app/app/(tabs)/calendar.tsx` — add wear-frequency warning:
+  - When locking an outfit, check `/calendar/repeat-check`
+  - If item worn ≥3 times in 30 days: show warning banner: "You've worn this top 4 times this month — try switching it up?"
+  - Suggestion: "Try swapping this [top] with [alternative from wardrobe]"
+  - (Alternative is a random unworn item from same category)
+
+---
+
+### Summary of All New Files
+
+| Phase | New/Modified File | Change |
+|-------|------------------|--------|
+| 4.1 | `server/app/routers/clothing.py` | Add `GET /closet-gaps` endpoint |
+| 4.1 | `server/app/schemas.py` | Add `ClosetGapResponse` |
+| 4.1 | `app/lib/api.ts` | Add `wardrobeApi.gaps()` |
+| 4.1 | `app/app/(tabs)/index.tsx` | Add Closet Gaps section |
+| 4.2 | `server/app/style_advisor.py` | Add `explain_outfit()` |
+| 4.2 | `server/app/routers/style_advice.py` | Add `POST /explain-outfit` |
+| 4.2 | `app/lib/api.ts` | Add `styleAdviceApi.explain()` |
+| 4.2 | `app/app/(tabs)/outfit-suggestions.tsx` | Add "Why this works" |
+| 4.3 | `server/app/services/nlp_router.py` | New — NL→params parser |
+| 4.3 | `server/app/routers/outfits.py` | Add `POST /smart-outfit` |
+| 4.3 | `app/lib/api.ts` | Add `outfitApi.smartSuggest()` |
+| 4.3 | `app/app/(tabs)/outfit-suggestions.tsx` | Add query input |
+| 4.4 | `server/app/services/weather_service.py` | New — weather API |
+| 4.4 | `server/app/routers/outfits.py` | Add `GET /weather-outfit` |
+| 4.4 | `app/lib/api.ts` | Add `outfitApi.weatherSuggest()` |
+| 4.4 | `app/app/(tabs)/index.tsx` | Add weather widget |
+| 4.5 | `server/app/services/packing_service.py` | New — packing logic |
+| 4.5 | `server/app/routers/packing.py` | New — packing endpoints |
+| 4.5 | `server/app/main.py` | Register packing router |
+| 4.5 | `app/app/(tabs)/packing.tsx` | New screen |
+| 4.5 | `app/app/(tabs)/_layout.tsx` | Add Packing tab |
+| 4.5 | `app/lib/api.ts` | Add `packingApi` |
+| 4.6 | `server/app/pairing_engine.py` | Add `build_capsule()` |
+| 4.6 | `server/app/routers/outfits.py` | Add `POST /capsule-wardrobe` |
+| 4.6 | `app/app/(tabs)/capsule.tsx` | New screen |
+| 4.6 | `app/app/(tabs)/_layout.tsx` | Add Capsule tab |
+| 4.6 | `app/lib/api.ts` | Add `outfitApi.buildCapsule()` |
+| 4.7 | `server/app/services/fashion_rating_service.py` | New — rating logic |
+| 4.7 | `server/app/routers/fashion_rating.py` | New — rating endpoints |
+| 4.7 | `server/app/main.py` | Register rating router |
+| 4.7 | `app/app/(tabs)/style-rating.tsx` | New screen |
+| 4.7 | `app/app/(tabs)/_layout.tsx` | Add Style Rating tab |
+| 4.7 | `app/lib/api.ts` | Add `fashionRatingApi` |
+| 4.8 | `server/app/services/calendar_service.py` | New — wear tracking |
+| 4.8 | `server/app/routers/calendar.py` | Add analytics endpoints |
+| 4.8 | `app/app/(tabs)/calendar.tsx` | Add wear-frequency UI |
+
+---
+
+### Dependencies & Config
+
+| Dependency | Required For | Setup |
+|------------|-------------|-------|
+| Gemini API key (existing) | 4.2, 4.3, 4.5, 4.7 | Already in `.env` |
+| OpenWeatherMap API key | 4.4 | Add `WEATHER_API_KEY` to `.env` |
+| Expo Location | 4.4 | `npx expo install expo-location` |
+| None new | 4.1, 4.6, 4.8 | Uses existing infrastructure |
+
+---
+
+### Implementation Order
+
+```
+Phase 4.1 — Closet Gap Analysis (quickest win, validates endpoint pattern)
+       ↓
+Phase 4.2 — AI Stylist (validates Gemini explain pattern)
+       ↓
+Phase 4.3 — Smart Outfit Generator (builds on 4.2)
+       ↓
+Phase 4.4 — Weather Recommendations (needs API key first)
+       ↓
+Phase 4.5 — AI Packing Assistant (standalone feature)
+       ↓
+Phase 4.6 — Capsule Wardrobe Builder (algorithm-heavy)
+       ↓
+Phase 4.7 — AI Fashion Rating (Gemini Vision)
+       ↓
+Phase 4.8 — Calendar Enhancements (polish pass)
+```
+
+Each phase should be fully tested before moving to the next.
+
 # StyleMate — Step-by-Step AI Build Prompts
 
 ## How to use this
