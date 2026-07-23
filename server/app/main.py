@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.database import Base, SessionLocal, engine, get_db
 from app import models  # noqa: F401
 from app.config import load_body_type_rules
-from app.models import User
+from app.models import User, ClothingItem
 from app.celery_app import celery_app  # noqa: F401
 from app.routers import users, clothing, upload, tagging, outfits, calendar, shopping, style_match, shop_matches, style_advice, tryon
 from app.schemas import ClothingItemCreate, ClothingItemResponse

@@ -89,7 +89,9 @@ MIME_MAP = {
 
 def _read_image(image_url: str) -> tuple[bytes, str]:
     if image_url.startswith("/"):
-        path = SERVER_DIR / image_url.lstrip("/")
+        path = Path(image_url)
+        if not path.exists():
+            path = SERVER_DIR / image_url.lstrip("/")
         ext = path.suffix.lower()
         content_type = MIME_MAP.get(ext, "image/jpeg")
         with open(path, "rb") as f:

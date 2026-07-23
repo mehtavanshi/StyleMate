@@ -223,7 +223,13 @@ function MatchSection({
   icon?: React.ComponentType<LucideProps>;
   items: StyleMatchItem[];
 }) {
-  if (!items || items.length === 0) return null;
+  if (!items || items.length === 0) {
+    return (
+      <Section title={title} icon={icon}>
+        <Empty text={`No matching ${title.toLowerCase()} found.`} />
+      </Section>
+    );
+  }
   return (
     <Section title={title} icon={icon}>
       {items.map((it, i) => (
@@ -271,7 +277,13 @@ function ColorSection({
   good: boolean;
   icon?: React.ComponentType<LucideProps>;
 }) {
-  if (!colorList || colorList.length === 0) return null;
+  if (!colorList || colorList.length === 0) {
+    return (
+      <Section title={title} icon={icon}>
+        <Empty text={`No ${title.toLowerCase()} found.`} />
+      </Section>
+    );
+  }
   return (
     <Section title={title} icon={icon}>
       <View style={styles.chipRow}>

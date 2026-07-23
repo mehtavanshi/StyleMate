@@ -171,4 +171,12 @@ class OutfitFeedbackResponse(OutfitFeedbackIn):
     model_config = {"from_attributes": True}
 
 
+# ── Closet Gaps ──
+
+class ClosetGapResponse(BaseModel):
+    missing_category: str
+    reason: str
+    search_query: str
+
+
 

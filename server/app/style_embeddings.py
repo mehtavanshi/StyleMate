@@ -68,7 +68,9 @@ def _get_model():
 def _resolve_image(image_path_or_url: str) -> Image.Image:
     """Load an image from a local path or URL and return a PIL Image."""
     if image_path_or_url.startswith("/"):
-        local_path = SERVER_DIR / image_path_or_url.lstrip("/")
+        local_path = Path(image_path_or_url)
+        if not local_path.exists():
+            local_path = SERVER_DIR / image_path_or_url.lstrip("/")
         if local_path.exists():
             return Image.open(local_path).convert("RGB")
         raise FileNotFoundError(f"Image not found: {local_path}")
