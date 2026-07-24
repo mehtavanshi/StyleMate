@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../../theme/tokens";
 import { router, useFocusEffect } from "expo-router";
 import { clothingApi, ClothingItem } from "../../lib/api";
+import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
 
 const CATEGORIES = ["top", "bottom", "dress", "outerwear", "footwear", "accessory"];
@@ -40,7 +41,7 @@ function WardrobeGridCell({ item }: { item: ClothingItem }) {
     >
       {item.image_url && !imgFailed ? (
         <Image
-          source={{ uri: `${BASE_URL}${item.image_url}` }}
+          source={{ uri: resolvePhotoUrl(item.image_url, BASE_URL) }}
           style={styles.gridImage}
           onError={() => setImgFailed(true)}
         />

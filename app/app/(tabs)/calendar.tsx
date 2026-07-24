@@ -21,6 +21,7 @@ import {
   outfitApi,
   OutfitSuggestion,
 } from "../../lib/api";
+import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
 import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../../theme/tokens";
 import { Star } from "../../lib/icons";
@@ -61,7 +62,7 @@ function OutfitThumb({
     <View style={styles.outfitThumb}>
       {item.image_url && !imgFailed ? (
         <Image
-          source={{ uri: `${BASE_URL}${item.image_url}` }}
+          source={{ uri: resolvePhotoUrl(item.image_url, BASE_URL) }}
           style={styles.outfitThumbImg}
           onError={() => setImgFailed(true)}
         />
@@ -222,7 +223,7 @@ export default function CalendarScreen() {
 
   const handleOpenTryOnViewer = () => {
     if (activeEntry?.try_on_result_image_url) {
-      setViewerImage(`${BASE_URL}${activeEntry.try_on_result_image_url}`);
+      setViewerImage(resolvePhotoUrl(activeEntry.try_on_result_image_url, BASE_URL));
       setViewerVisible(true);
     }
   };
@@ -329,7 +330,7 @@ export default function CalendarScreen() {
             {activeEntry?.try_on_result_image_url && (
               <View style={styles.tryOnImageContainer}>
                 <Image
-                  source={{ uri: `${BASE_URL}${activeEntry.try_on_result_image_url}` }}
+                  source={{ uri: resolvePhotoUrl(activeEntry.try_on_result_image_url, BASE_URL) }}
                   style={styles.tryOnImage}
                   resizeMode="cover"
                 />

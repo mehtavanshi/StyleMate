@@ -15,6 +15,7 @@ import { ChevronDown, ChevronUp } from "../../lib/icons";
 import { spacing, fontSize, fontWeight, borderRadius as br, colors } from "../../theme/tokens";
 import { router, useLocalSearchParams } from "expo-router";
 
+import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
 import { clothingApi, consentApi, DEMO_USER_ID, TagResult, uploadApi } from "../../lib/api";
 
@@ -276,7 +277,7 @@ export default function AddItemScreen() {
     <SafeAreaView style={{ flex: 1 }}>
       <ScrollView style={styles.container} contentContainerStyle={styles.formContent}>
       {imageUrl && (
-        <Image source={{ uri: `${BASE_URL}${imageUrl}` }} style={styles.formImage} />
+        <Image source={{ uri: resolvePhotoUrl(imageUrl, BASE_URL) }} style={styles.formImage} />
       )}
 
       <Text style={styles.label}>Name *</Text>

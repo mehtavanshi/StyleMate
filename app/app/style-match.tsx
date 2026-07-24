@@ -20,6 +20,7 @@ import {
   ShoppingSuggestion,
   OccasionOutfit,
 } from "../lib/api";
+import { resolvePhotoUrl } from "../lib/constants";
 import { BASE_URL } from "../config/api";
 import {
   House,
@@ -102,7 +103,7 @@ export default function StyleMatchScreen() {
       <View style={styles.hero}>
         {selected.image_url ? (
           <Image
-            source={{ uri: `${BASE_URL}${selected.image_url}` }}
+            source={{ uri: resolvePhotoUrl(selected.image_url, BASE_URL) }}
             style={styles.heroImage}
           />
         ) : (

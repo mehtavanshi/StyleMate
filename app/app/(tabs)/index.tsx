@@ -169,7 +169,7 @@ export default function HomeScreen() {
               {todaysOutfit.items.slice(0, 3).map((it) => (
                 <View key={it.id} style={styles.outfitThumb}>
                   {it.image_url ? (
-                    <Image source={{ uri: `${BASE_URL}${it.image_url}` }} style={styles.outfitThumbImg} />
+                    <Image source={{ uri: resolvePhotoUrl(it.image_url, BASE_URL) }} style={styles.outfitThumbImg} />
                   ) : (
                     <View style={[styles.outfitThumbImg, styles.outfitThumbPlaceholder]}>
                       <Text style={styles.outfitThumbLetter}>{it.name?.[0] || "?"}</Text>

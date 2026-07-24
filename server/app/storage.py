@@ -150,4 +150,6 @@ def get_storage_provider() -> StorageProvider:
         return S3StorageProvider()
     if provider == "gcs":
         return GCSStorageProvider()
+    if provider == "supabase":
+        return LocalStorageProvider()
     return LocalStorageProvider()

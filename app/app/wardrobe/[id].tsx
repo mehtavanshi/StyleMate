@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { clothingApi, ClothingItem, SuggestionMatch } from "../../lib/api";
+import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
 import { Sparkles } from "../../lib/icons";
 import { borderRadius as br, colors, fontSize, fontWeight, spacing, shadow } from "../../theme/tokens";
@@ -126,7 +127,7 @@ export default function ItemDetailScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {item.image_url && !imgFailed ? (
         <Image
-          source={{ uri: `${BASE_URL}${item.image_url}` }}
+          source={{ uri: resolvePhotoUrl(item.image_url, BASE_URL) }}
           style={styles.image}
           accessibilityLabel={`Image of ${item.name || "clothing item"}`}
           onError={() => setImgFailed(true)}
@@ -171,7 +172,7 @@ export default function ItemDetailScreen() {
               >
                 {m.image_url ? (
                   <Image
-                    source={{ uri: `${BASE_URL}${m.image_url}` }}
+                    source={{ uri: resolvePhotoUrl(m.image_url, BASE_URL) }}
                     style={styles.matchImage}
                   />
                 ) : (

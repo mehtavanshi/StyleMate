@@ -29,6 +29,7 @@ import {
   ShoppingGroup,
   ShoppingProduct,
 } from "../../lib/api";
+import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
 import TryOnUsageBadge from "../../components/TryOnUsageBadge";
 import {
@@ -95,7 +96,7 @@ function ItemThumb({ item }: { item: OutfitItem }) {
     >
       {item.image_url && !imgFailed ? (
         <Image
-          source={{ uri: `${BASE_URL}${item.image_url}` }}
+          source={{ uri: resolvePhotoUrl(item.image_url, BASE_URL) }}
           style={styles.thumbImage}
           onError={() => setImgFailed(true)}
         />

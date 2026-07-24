@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from app.database import Base, SessionLocal, engine, get_db
+from app.database import Base, SessionLocal, engine, get_db, DATABASE_URL
 from app import models  # noqa: F401
 from app.config import load_body_type_rules
 from app.models import User, ClothingItem
@@ -31,14 +31,15 @@ UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
 
 Base.metadata.create_all(bind=engine)
 
-with engine.connect() as conn:
-    cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(calendar_entries)")]
-    if "try_on_result_id" not in cols:
-        conn.exec_driver_sql(
-            "ALTER TABLE calendar_entries ADD COLUMN try_on_result_id INTEGER"
-        )
-        conn.commit()
-        logger.info("Migrated: added try_on_result_id to calendar_entries")
+if DATABASE_URL.startswith("sqlite"):
+    with engine.connect() as conn:
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(calendar_entries)")]
+        if "try_on_result_id" not in cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE calendar_entries ADD COLUMN try_on_result_id INTEGER"
+            )
+            conn.commit()
+            logger.info("Migrated: added try_on_result_id to calendar_entries")
 
 load_body_type_rules()
 
