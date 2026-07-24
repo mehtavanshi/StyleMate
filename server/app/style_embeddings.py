@@ -9,6 +9,7 @@ Model download on first use: ~500MB, cached in ~/.cache/huggingface/.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import tempfile
@@ -66,7 +67,7 @@ def _get_model():
 
 
 def _resolve_image(image_path_or_url: str) -> Image.Image:
-    """Load an image from a local path or URL and return a PIL Image."""
+    """Load an image from a local path, URL, or storage key and return a PIL Image."""
     if image_path_or_url.startswith("/"):
         local_path = Path(image_path_or_url)
         if not local_path.exists():
@@ -86,7 +87,11 @@ def _resolve_image(image_path_or_url: str) -> Image.Image:
             tmp_path = tmp.name
         return Image.open(tmp_path).convert("RGB")
 
-    raise ValueError(f"Unsupported image path/URL: {image_path_or_url}")
+    from app.storage import get_storage_provider
+
+    provider = get_storage_provider()
+    data = provider.read_file(image_path_or_url)
+    return Image.open(io.BytesIO(data)).convert("RGB")
 
 
 def get_embedding(image_path_or_url: str) -> list[float]:

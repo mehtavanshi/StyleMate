@@ -15,6 +15,7 @@ import { router, useFocusEffect } from "expo-router";
 import { DEMO_USER_ID, tryOnApi, TryOnJob } from "../../lib/api";
 import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
+import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
 import { X } from "../../lib/icons";
 
 function TryOnResultCard({ item }: { item: TryOnJob }) {
@@ -79,6 +80,8 @@ export default function MyTryOnsScreen() {
     }, [])
   );
 
+  const { paddingBottom } = useTabScreenPadding();
+
   if (loading) {
     return (
       <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Loading your try-ons">
@@ -132,7 +135,7 @@ export default function MyTryOnsScreen() {
             keyExtractor={(item) => item.job_id}
             renderItem={renderResult}
             numColumns={2}
-            contentContainerStyle={styles.grid}
+            contentContainerStyle={[styles.grid, { paddingBottom }]}
             showsVerticalScrollIndicator={false}
           />
         </>
@@ -145,7 +148,7 @@ export default function MyTryOnsScreen() {
             keyExtractor={(item) => item.job_id}
             renderItem={renderFailed}
             numColumns={2}
-            contentContainerStyle={styles.grid}
+            contentContainerStyle={[styles.grid, { paddingBottom }]}
             showsVerticalScrollIndicator={false}
           />
         </>

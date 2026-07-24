@@ -15,6 +15,8 @@ import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../..
 import { router, useFocusEffect } from "expo-router";
 import { clothingApi, ClothingItem } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
+import { resolveImageUrl } from "../../lib/constants";
+import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
 
 const CATEGORIES = ["top", "bottom", "dress", "outerwear", "footwear", "accessory"];
 const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"];
@@ -40,7 +42,7 @@ function WardrobeGridCell({ item }: { item: ClothingItem }) {
     >
       {item.image_url && !imgFailed ? (
         <Image
-          source={{ uri: `${BASE_URL}${item.image_url}` }}
+          source={{ uri: resolveImageUrl(item.image_url, BASE_URL) ?? undefined }}
           style={styles.gridImage}
           onError={() => setImgFailed(true)}
         />
@@ -124,6 +126,7 @@ export default function WardrobeScreen() {
     });
   }, [items, search, selectedCategories, selectedOccasions, selectedTargetGenders]);
 
+  const { paddingBottom } = useTabScreenPadding();
   const hasFilters = selectedCategories.size > 0 || selectedOccasions.size > 0 || selectedTargetGenders.size > 0;
 
   const renderChipRow = (
@@ -205,7 +208,7 @@ export default function WardrobeScreen() {
           keyExtractor={(item) => String(item.id)}
           numColumns={2}
           columnWrapperStyle={styles.gridRow}
-          contentContainerStyle={styles.gridContainer}
+          contentContainerStyle={[styles.gridContainer, { paddingBottom }]}
           renderItem={renderItem}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />

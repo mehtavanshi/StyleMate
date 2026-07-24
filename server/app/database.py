@@ -1,14 +1,16 @@
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# SQLite database file stored alongside the server code.
-SQLALCHEMY_DATABASE_URL = "sqlite:///./stylemate.db"
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-# check_same_thread=False is required for SQLite when used with FastAPI,
-# since FastAPI can access the database from more than one thread.
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
+if DATABASE_URL:
+    engine = create_engine(DATABASE_URL)
+else:
+    engine = create_engine(
+        "sqlite:///./stylemate.db", connect_args={"check_same_thread": False}
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

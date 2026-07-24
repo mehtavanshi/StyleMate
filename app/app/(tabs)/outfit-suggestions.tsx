@@ -30,6 +30,7 @@ import {
   ShoppingProduct,
 } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
+import { resolveImageUrl } from "../../lib/constants";
 import TryOnUsageBadge from "../../components/TryOnUsageBadge";
 import {
   RefreshCw,
@@ -39,6 +40,7 @@ import {
   ThumbsUp,
 } from "../../lib/icons";
 import { spacing, fontSize, fontWeight, borderRadius as br, colors, shadow } from "../../theme/tokens";
+import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
 
 const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"];
 const TARGET_GENDERS = ["unisex", "men", "women"];
@@ -95,7 +97,7 @@ function ItemThumb({ item }: { item: OutfitItem }) {
     >
       {item.image_url && !imgFailed ? (
         <Image
-          source={{ uri: `${BASE_URL}${item.image_url}` }}
+          source={{ uri: resolveImageUrl(item.image_url, BASE_URL) ?? undefined }}
           style={styles.thumbImage}
           onError={() => setImgFailed(true)}
         />
@@ -346,6 +348,8 @@ export default function OutfitSuggestionsScreen() {
 
     return () => subscription.remove();
   }, []);
+
+  const { paddingBottom } = useTabScreenPadding();
 
   const rotateMessages = useCallback((key: string) => {
     messageRefs.current[key] = setInterval(() => {
@@ -719,7 +723,7 @@ export default function OutfitSuggestionsScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.list}>
+        <ScrollView contentContainerStyle={[styles.list, { paddingBottom }]}>
           {suggestions.map((item, index) => (
             <View key={`suggestion-${index}`}>{renderCard({ item, index })}</View>
           ))}

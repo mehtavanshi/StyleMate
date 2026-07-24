@@ -7,6 +7,12 @@ export function resolvePhotoUrl(url: string | null, baseUrl: string): string | n
   return url.startsWith("http://") || url.startsWith("https://") ? url : `${baseUrl}${url}`;
 }
 
+/** Resolve any image URL — same logic as resolvePhotoUrl, for generic use. */
+export function resolveImageUrl(url: string | null, baseUrl: string): string | null {
+  if (!url) return null;
+  return url.startsWith("http://") || url.startsWith("https://") ? url : `${baseUrl}${url}`;
+}
+
 // Photo capture validation
 export const MIN_SHORT_EDGE_PX = 768;
 export const MAX_LONG_EDGE_PX = 1600;

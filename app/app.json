@@ -36,8 +36,7 @@
           "cameraPermission": "StyleMate needs camera access to take your photo for virtual try-on."
         }
       ],
-      ["expo-dev-client", { "launchMode": "most-recent" }],
-      "expo-media-library"
+      ["expo-dev-client", { "launchMode": "most-recent" }]
     ]
   }
 }

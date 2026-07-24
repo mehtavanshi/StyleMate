@@ -29,6 +29,7 @@ async def upload_image(file: UploadFile = File(...)):
         )
 
     provider = get_storage_provider()
-    image_url = provider.save_file(content, file.filename or "upload", file.content_type)
+    storage_key = provider.save_file(content, file.filename or "upload", file.content_type)
+    image_url = provider.get_file_url(storage_key)
 
     return {"image_url": image_url}

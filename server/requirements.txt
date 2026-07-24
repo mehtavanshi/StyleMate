@@ -23,6 +23,15 @@ scikit-learn
 
 colorthief
 
+# PostgreSQL driver (required for Supabase)
+psycopg2-binary
+
+# Schema migrations
+alembic
+
+# Supabase client (file storage)
+supabase
+
 # Optional: S3 storage (set STORAGE_PROVIDER=s3)
 # boto3
 

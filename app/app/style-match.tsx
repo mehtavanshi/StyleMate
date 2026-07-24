@@ -21,6 +21,7 @@ import {
   OccasionOutfit,
 } from "../lib/api";
 import { BASE_URL } from "../config/api";
+import { resolveImageUrl } from "../lib/constants";
 import {
   House,
   Layers,
@@ -102,7 +103,7 @@ export default function StyleMatchScreen() {
       <View style={styles.hero}>
         {selected.image_url ? (
           <Image
-            source={{ uri: `${BASE_URL}${selected.image_url}` }}
+            source={{ uri: resolveImageUrl(selected.image_url, BASE_URL) ?? undefined }}
             style={styles.heroImage}
           />
         ) : (

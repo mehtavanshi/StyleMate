@@ -29,16 +29,8 @@ logger = logging.getLogger(__name__)
 
 UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
 
-Base.metadata.create_all(bind=engine)
-
-with engine.connect() as conn:
-    cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(calendar_entries)")]
-    if "try_on_result_id" not in cols:
-        conn.exec_driver_sql(
-            "ALTER TABLE calendar_entries ADD COLUMN try_on_result_id INTEGER"
-        )
-        conn.commit()
-        logger.info("Migrated: added try_on_result_id to calendar_entries")
+if not os.environ.get("DATABASE_URL"):
+    Base.metadata.create_all(bind=engine)
 
 load_body_type_rules()
 
@@ -151,5 +143,6 @@ def _photo_cleanup_loop() -> None:
 Thread(target=_photo_cleanup_loop, daemon=True).start()
 
 
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+if not os.environ.get("DATABASE_URL"):
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")

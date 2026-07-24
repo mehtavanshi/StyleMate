@@ -174,14 +174,15 @@ export default function TryOnScreen() {
     if (!job?.result_image_url) return;
     setSaving(true);
     try {
-      const MediaLibrary = await import("expo-media-library");
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== "granted") {
-        setSaving(false);
-        return;
-      }
-      const uri = resolvePhotoUrl(job.result_image_url, BASE_URL) ?? job.result_image_url;
-      await MediaLibrary.saveToLibraryAsync(uri);
+      const FileSystem = await import("expo-file-system");
+      const Sharing = await import("expo-sharing");
+      const imageUri = resolvePhotoUrl(job.result_image_url, BASE_URL) ?? job.result_image_url;
+      const localUri = FileSystem.cacheDirectory + "try-on-result.jpg";
+      await FileSystem.downloadAsync(imageUri, localUri);
+      await Sharing.shareAsync(localUri, {
+        mimeType: "image/jpeg",
+        dialogTitle: "Save your try-on from StyleMate",
+      });
       setSaved(true);
     } catch {
       setSaving(false);

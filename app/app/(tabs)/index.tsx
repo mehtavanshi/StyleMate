@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   Image,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -24,10 +25,15 @@ import {
   consentApi,
   outfitApi,
   OutfitSuggestion,
+  uploadApi,
 } from "../../lib/api";
-import { resolvePhotoUrl } from "../../lib/constants";
+import { resolvePhotoUrl, MAX_LONG_EDGE_PX, JPEG_QUALITY } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
+import * as ImagePicker from "expo-image-picker";
 import TryOnUsageBadge from "../../components/TryOnUsageBadge";
+import Avatar from "../../components/Avatar";
+import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
 
 const ONBOARDING_FLAG = "onboarding_complete";
 
@@ -106,154 +112,230 @@ export default function HomeScreen() {
     );
   };
 
+  const handleAvatarPress = () => {
+    Alert.alert("Profile Photo", "Choose an option", [
+      { text: "Choose from Library", onPress: handlePickFromLibrary },
+      { text: "Take Photo", onPress: handleTakePhoto },
+      ...(consentStatus?.photo_url
+        ? [{ text: "Remove Photo", style: "destructive" as const, onPress: handleRemovePhoto }]
+        : []),
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
+  const handlePickFromLibrary = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission needed", "Please grant photo library access.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 1,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    await uploadAndSetPhoto(result.assets[0].uri);
+  };
+
+  const handleTakePhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission needed", "Please grant camera access.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 1,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    await uploadAndSetPhoto(result.assets[0].uri);
+  };
+
+  const uploadAndSetPhoto = async (uri: string) => {
+    try {
+      const manipulated = await ImageManipulator.manipulate(uri)
+        .resize({ width: MAX_LONG_EDGE_PX })
+        .renderAsync();
+      const compressed = await manipulated.saveAsync({
+        compress: JPEG_QUALITY,
+        format: SaveFormat.JPEG,
+      });
+      const { image_url } = await uploadApi.uploadImage(
+        compressed.uri,
+        "photo.jpg",
+        "image/jpeg",
+      );
+      const updated = await consentApi.setPhoto(DEMO_USER_ID, image_url);
+      setConsentStatus(updated);
+    } catch {
+      Alert.alert("Error", "Could not update photo. Please try again.");
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    try {
+      await consentApi.deletePhoto(DEMO_USER_ID);
+      setConsentStatus((prev) => (prev ? { ...prev, photo_url: null } : null));
+    } catch {
+      Alert.alert("Error", "Could not remove photo. Please try again.");
+    }
+  };
+
+  const { paddingBottom } = useTabScreenPadding();
+
   return (
     <SafeAreaView style={styles.container} accessibilityRole="none">
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title} accessibilityRole="header">StyleMate</Text>
-          <Text style={styles.subtitle}>Your AI Wardrobe Assistant</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.settingsBtn}
-          onPress={() => router.push("/app/settings")}
-          accessibilityLabel="Settings"
-        >
-          <Settings size={22} color={colors.accent} strokeWidth={1.5} />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Wardrobe</Text>
-        {Object.keys(wardrobeStats).length > 0 ? (
-          <View style={styles.statsRow}>
-            {Object.entries(wardrobeStats).map(([cat, count]) => (
-              <View key={cat} style={styles.statItem}>
-                <Text style={styles.statCount}>{count}</Text>
-                <Text style={styles.statLabel}>{cat}</Text>
-              </View>
-            ))}
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom }]}>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title} accessibilityRole="header">StyleMate</Text>
+            <Text style={styles.subtitle}>Your AI Wardrobe Assistant</Text>
           </View>
-        ) : (
-          <Text style={styles.cardText}>
-            Open the Wardrobe tab to start adding items.
-          </Text>
-        )}
-        <TryOnUsageBadge />
-      </View>
-
-      {!checked ? (
-        <ActivityIndicator style={{ marginTop: 20 }} color="#333" />
-      ) : !seen ? (
-        <TouchableOpacity
-          style={styles.cta}
-          onPress={() => router.push("/onboarding")}
-        >
-          <Text style={styles.ctaText}>Tell us your shape</Text>
-        </TouchableOpacity>
-      ) : null}
-
-      {outfitLoading ? (
-        <View style={styles.loadingSection}>
-          <ActivityIndicator size="small" color="#333" />
-        </View>
-      ) : todaysOutfit ? (
-        <>
-          <View style={styles.divider} />
-          <Text style={styles.sectionLabel}>Today's Outfit</Text>
+          <Avatar
+            photoUrl={consentStatus?.photo_url}
+            onPress={handleAvatarPress}
+            size={40}
+          />
           <TouchableOpacity
-            style={styles.outfitCard}
-            onPress={() => router.push("/(tabs)/outfit-suggestions")}
-            activeOpacity={0.85}
+            style={styles.settingsBtn}
+            onPress={() => router.push("/app/settings")}
+            accessibilityLabel="Settings"
           >
-            <View style={styles.outfitThumbs}>
-              {todaysOutfit.items.slice(0, 3).map((it) => (
-                <View key={it.id} style={styles.outfitThumb}>
-                  {it.image_url ? (
-                    <Image source={{ uri: `${BASE_URL}${it.image_url}` }} style={styles.outfitThumbImg} />
-                  ) : (
-                    <View style={[styles.outfitThumbImg, styles.outfitThumbPlaceholder]}>
-                      <Text style={styles.outfitThumbLetter}>{it.name?.[0] || "?"}</Text>
-                    </View>
-                  )}
+            <Settings size={22} color={colors.accent} strokeWidth={1.5} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Wardrobe</Text>
+          {Object.keys(wardrobeStats).length > 0 ? (
+            <View style={styles.statsRow}>
+              {Object.entries(wardrobeStats).map(([cat, count]) => (
+                <View key={cat} style={styles.statItem}>
+                  <Text style={styles.statCount}>{count}</Text>
+                  <Text style={styles.statLabel}>{cat}</Text>
                 </View>
               ))}
             </View>
-            <View style={styles.outfitMeta}>
-              <Text style={styles.outfitReason} numberOfLines={2}>{todaysOutfit.reason}</Text>
-              <View style={styles.outfitScoreRow}>
-                <Star size={14} color={colors.warning} strokeWidth={1.5} fill={colors.warning} />
-                <Text style={styles.outfitScore}>{todaysOutfit.score.toFixed(2)}</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-        </>
-      ) : null}
-
-      {nextCalendarEntry && (
-        <>
-          <View style={styles.divider} />
-          <Text style={styles.sectionLabel}>Upcoming</Text>
-          <TouchableOpacity
-            style={styles.linkButton}
-            onPress={() => router.push("/(tabs)/calendar")}
-          >
-            <Text style={styles.linkButtonText}>
-              {nextCalendarEntry.date}
-              {nextCalendarEntry.occasion_tag ? ` · ${nextCalendarEntry.occasion_tag}` : ""}
-              {nextCalendarEntry.locked_outfit_id != null ? " ✓" : ""}
+          ) : (
+            <Text style={styles.cardText}>
+              Open the Wardrobe tab to start adding items.
             </Text>
-          </TouchableOpacity>
-        </>
-      )}
-
-      <View style={styles.divider} />
-
-      <Text style={styles.sectionLabel}>My Photo</Text>
-
-      {consentStatus?.photo_consent ? (
-        <>
-          {consentStatus?.photo_url && (
-            <View style={styles.photoPreviewWrap}>
-              <Image
-                source={{ uri: resolvePhotoUrl(consentStatus.photo_url, BASE_URL) ?? undefined }}
-                style={styles.photoPreview}
-                resizeMode="cover"
-              />
-            </View>
           )}
+          <TryOnUsageBadge />
+        </View>
+
+        {!checked ? (
+          <ActivityIndicator style={{ marginTop: 20 }} color="#333" />
+        ) : !seen ? (
           <TouchableOpacity
-            style={styles.linkButton}
-            onPress={() => router.push("/capture")}
+            style={styles.cta}
+            onPress={() => router.push("/onboarding")}
           >
-            <Text style={styles.linkButtonText}>
-              {consentStatus?.photo_url ? "Update my photo" : "Take my photo"}
-            </Text>
+            <Text style={styles.ctaText}>Tell us your shape</Text>
           </TouchableOpacity>
-          {consentStatus?.photo_url && (
+        ) : null}
+
+        {outfitLoading ? (
+          <View style={styles.loadingSection}>
+            <ActivityIndicator size="small" color="#333" />
+          </View>
+        ) : todaysOutfit ? (
+          <>
+            <View style={styles.divider} />
+            <Text style={styles.sectionLabel}>Today's Outfit</Text>
             <TouchableOpacity
-              style={[styles.linkButton, styles.deleteButton]}
-              onPress={handleDeletePhoto}
+              style={styles.outfitCard}
+              onPress={() => router.push("/(tabs)/outfit-suggestions")}
+              activeOpacity={0.85}
             >
-              <Text style={styles.deleteButtonText}>Delete my photo</Text>
+              <View style={styles.outfitThumbs}>
+                {todaysOutfit.items.slice(0, 3).map((it) => (
+                  <View key={it.id} style={styles.outfitThumb}>
+                    {it.image_url ? (
+                      <Image source={{ uri: resolvePhotoUrl(it.image_url, BASE_URL) ?? undefined }} style={styles.outfitThumbImg} />
+                    ) : (
+                      <View style={[styles.outfitThumbImg, styles.outfitThumbPlaceholder]}>
+                        <Text style={styles.outfitThumbLetter}>{it.name?.[0] || "?"}</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+              <View style={styles.outfitMeta}>
+                <Text style={styles.outfitReason} numberOfLines={2}>{todaysOutfit.reason}</Text>
+                <View style={styles.outfitScoreRow}>
+                  <Star size={14} color={colors.warning} strokeWidth={1.5} fill={colors.warning} />
+                  <Text style={styles.outfitScore}>{todaysOutfit.score.toFixed(2)}</Text>
+                </View>
+              </View>
             </TouchableOpacity>
-          )}
-        </>
-      ) : (
-        <TouchableOpacity
-          style={[styles.linkButton, styles.linkButtonPrimary]}
-          onPress={() => router.push("/consent")}
-        >
-          <Text style={styles.linkButtonTextPrimary}>Give photo consent first</Text>
-        </TouchableOpacity>
-      )}
+          </>
+        ) : null}
 
+        {nextCalendarEntry && (
+          <>
+            <View style={styles.divider} />
+            <Text style={styles.sectionLabel}>Upcoming</Text>
+            <TouchableOpacity
+              style={styles.linkButton}
+              onPress={() => router.push("/(tabs)/calendar")}
+            >
+              <Text style={styles.linkButtonText}>
+                {nextCalendarEntry.date}
+                {nextCalendarEntry.occasion_tag ? ` · ${nextCalendarEntry.occasion_tag}` : ""}
+                {nextCalendarEntry.locked_outfit_id != null ? " ✓" : ""}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
 
+        <View style={styles.divider} />
+
+        <Text style={styles.sectionLabel}>My Photo</Text>
+
+        {consentStatus?.photo_consent ? (
+          <>
+            {consentStatus?.photo_url && (
+              <View style={styles.photoPreviewWrap}>
+                <Image
+                  source={{ uri: resolvePhotoUrl(consentStatus.photo_url, BASE_URL) ?? undefined }}
+                  style={styles.photoPreview}
+                  resizeMode="cover"
+                />
+              </View>
+            )}
+            <TouchableOpacity
+              style={styles.linkButton}
+              onPress={() => router.push("/capture")}
+            >
+              <Text style={styles.linkButtonText}>
+                {consentStatus?.photo_url ? "Update my photo" : "Take my photo"}
+              </Text>
+            </TouchableOpacity>
+            {consentStatus?.photo_url && (
+              <TouchableOpacity
+                style={[styles.linkButton, styles.deleteButton]}
+                onPress={handleDeletePhoto}
+              >
+                <Text style={styles.deleteButtonText}>Delete my photo</Text>
+              </TouchableOpacity>
+            )}
+          </>
+        ) : (
+          <TouchableOpacity
+            style={[styles.linkButton, styles.linkButtonPrimary]}
+            onPress={() => router.push("/consent")}
+          >
+            <Text style={styles.linkButtonTextPrimary}>Give photo consent first</Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background },
+  scrollContent: { alignItems: "center", padding: spacing.xl },
   headerRow: { flexDirection: "row", alignItems: "flex-start", width: "100%", marginBottom: spacing.xxl - 4 },
   settingsBtn: { padding: spacing.sm, marginTop: spacing.xs },
   title: { fontSize: fontSize.xxxl, fontWeight: fontWeight.extrabold },

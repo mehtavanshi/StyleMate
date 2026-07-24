@@ -13,10 +13,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ChevronDown, ChevronUp } from "../../lib/icons";
 import { spacing, fontSize, fontWeight, borderRadius as br, colors } from "../../theme/tokens";
+import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
 import { router, useLocalSearchParams } from "expo-router";
 
 import { BASE_URL } from "../../config/api";
 import { clothingApi, consentApi, DEMO_USER_ID, TagResult, uploadApi } from "../../lib/api";
+import { resolveImageUrl } from "../../lib/constants";
 
 const CATEGORIES = ["top", "bottom", "dress", "outerwear", "footwear", "accessory"];
 const PATTERNS = ["solid", "striped", "printed", "checked", "other"];
@@ -31,6 +33,7 @@ const FORMALITY_MAP: Record<string, number> = {
 };
 
 export default function AddItemScreen() {
+  const { paddingBottom } = useTabScreenPadding();
   const { image_url: routeImageUrl } = useLocalSearchParams<{ image_url?: string }>();
   const [consentChecked, setConsentChecked] = useState(false);
   const [step, setStep] = useState<"tagging" | "form" | "error">("form");
@@ -274,9 +277,9 @@ export default function AddItemScreen() {
   // Form step
   return (
     <SafeAreaView style={{ flex: 1 }}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.formContent}>
+      <ScrollView style={styles.container} contentContainerStyle={[styles.formContent, { paddingBottom }]}>
       {imageUrl && (
-        <Image source={{ uri: `${BASE_URL}${imageUrl}` }} style={styles.formImage} />
+        <Image source={{ uri: resolveImageUrl(imageUrl, BASE_URL) ?? undefined }} style={styles.formImage} />
       )}
 
       <Text style={styles.label}>Name *</Text>
