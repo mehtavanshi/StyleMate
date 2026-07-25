@@ -135,3 +135,58 @@ class TestEmbeddingCache:
         serialized = json.dumps(original)
         loaded = json.loads(serialized)
         assert loaded == original
+
+
+class TestZeroShotBinaryCheck:
+    @patch("app.style_embeddings.get_ensembled_label_embedding")
+    @patch("app.style_embeddings.get_embedding")
+    def test_positive_wins_when_high_similarity(self, mock_get_emb, mock_get_ensembled):
+        mock_get_emb.return_value = [0.9, 0.1, 0.0]
+        mock_get_ensembled.side_effect = lambda label: {
+            "garment with lace": [0.9, 0.1, 0.0],
+            "garment without lace": [0.1, 0.1, 0.0],
+        }.get(label, [0.0, 0.0, 0.0])
+
+        from app.style_embeddings import zero_shot_binary_check
+
+        present, score = zero_shot_binary_check(
+            "/test.jpg", "garment with lace", "garment without lace",
+        )
+
+        assert present is True
+        assert score > 0
+
+    @patch("app.style_embeddings.get_ensembled_label_embedding")
+    @patch("app.style_embeddings.get_embedding")
+    def test_negative_wins_when_positive_low(self, mock_get_emb, mock_get_ensembled):
+        mock_get_emb.return_value = [0.9, 0.1, 0.0]
+        mock_get_ensembled.side_effect = lambda label: {
+            "garment with lace": [0.1, 0.1, 0.0],
+            "garment without lace": [0.9, 0.1, 0.0],
+        }.get(label, [0.0, 0.0, 0.0])
+
+        from app.style_embeddings import zero_shot_binary_check
+
+        present, score = zero_shot_binary_check(
+            "/test.jpg", "garment with lace", "garment without lace",
+        )
+
+        assert present is False
+
+    @patch("app.style_embeddings.get_ensembled_label_embedding")
+    @patch("app.style_embeddings.get_embedding")
+    def test_threshold_respected(self, mock_get_emb, mock_get_ensembled):
+        mock_get_emb.return_value = [0.05, 0.0, 0.0]
+        mock_get_ensembled.side_effect = lambda label: {
+            "garment with lace": [0.05, 0.0, 0.0],
+            "garment without lace": [0.01, 0.0, 0.0],
+        }.get(label, [0.0, 0.0, 0.0])
+
+        from app.style_embeddings import zero_shot_binary_check
+
+        present, score = zero_shot_binary_check(
+            "/test.jpg", "garment with lace", "garment without lace",
+            threshold=0.1,
+        )
+
+        assert present is False

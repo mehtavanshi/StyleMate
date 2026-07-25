@@ -32,6 +32,7 @@ from urllib.parse import quote_plus
 from sqlalchemy.orm import Session
 
 from app.models import ClothingItem
+from app.fashion_taxonomy import EMBELLISHMENT_DISPLAY, SILHOUETTE_RULES, TAXONOMY
 from app.pairing_engine import (
     _FASHION_CLASHES,
     HSL_MAP,
@@ -40,6 +41,7 @@ from app.pairing_engine import (
     _hue_diff,
     _is_neutral_hsl,
     _normalise,
+    _parse_embellishments,
     score_pair,
 )
 from app.shopping_links import build_google_shopping_link, build_meesho_search_link
@@ -130,6 +132,7 @@ class StyleMatchItem:
     category: str | None = None
     color: str | None = None
     image_url: str | None = None
+    subcategory: str | None = None
 
 
 @dataclass
@@ -308,6 +311,7 @@ class _HypotheticalItem:
     style_tags: str | None = None
     embedding_json: str | None = None
     pattern: str | None = None
+    subcategory: str | None = None
 
 
 # -- Occasion-aware suggestion templates --
@@ -491,135 +495,135 @@ _OUTERWEAR_TEMPLATES: dict[str, list[dict]] = {
 
 _BOTTOM_TEMPLATES: dict[str, list[dict]] = {
     "formal": [
-        {"name": "{color} Tailored Trousers", "color": None, "fabric": "wool"},
-        {"name": "Black Formal Pants", "color": "black", "fabric": "wool"},
-        {"name": "{color} Pencil Skirt", "color": None, "fabric": "wool"},
+        {"name": "{color} Tailored Trousers", "color": None, "fabric": "wool", "subcategory": "trousers"},
+        {"name": "Black Formal Pants", "color": "black", "fabric": "wool", "subcategory": "trousers"},
+        {"name": "{color} Pencil Skirt", "color": None, "fabric": "wool", "subcategory": "pencil_skirt"},
     ],
     "office": [
-        {"name": "{color} Straight Trousers", "color": None, "fabric": "cotton"},
-        {"name": "Black Pencil Pants", "color": "black", "fabric": "cotton"},
-        {"name": "{color} Wide-Leg Trousers", "color": None, "fabric": "cotton"},
-        {"name": "{color} Pleated Midi Skirt", "color": None, "fabric": "cotton"},
+        {"name": "{color} Straight Trousers", "color": None, "fabric": "cotton", "subcategory": "trousers"},
+        {"name": "Black Pencil Pants", "color": "black", "fabric": "cotton", "subcategory": "trousers"},
+        {"name": "{color} Wide-Leg Trousers", "color": None, "fabric": "cotton", "subcategory": "wide_leg"},
+        {"name": "{color} Pleated Midi Skirt", "color": None, "fabric": "cotton", "subcategory": "pleated_skirt"},
     ],
     "party": [
-        {"name": "{color} Satin Pants", "color": None, "fabric": "synthetic"},
-        {"name": "Black Skinny Pants", "color": "black", "fabric": "cotton"},
-        {"name": "{color} Mini Skirt", "color": None, "fabric": "synthetic"},
-        {"name": "{color} Sequin Skirt", "color": None, "fabric": "synthetic"},
+        {"name": "{color} Satin Pants", "color": None, "fabric": "synthetic", "subcategory": "trousers"},
+        {"name": "Black Skinny Pants", "color": "black", "fabric": "cotton", "subcategory": "skinny"},
+        {"name": "{color} Mini Skirt", "color": None, "fabric": "synthetic", "subcategory": "mini_skirt"},
+        {"name": "{color} Sequin Skirt", "color": None, "fabric": "synthetic", "subcategory": None},
     ],
     "traditional": [
-        {"name": "{color} Palazzo Pants", "color": None, "fabric": "cotton"},
-        {"name": "Beige Dhoti Pants", "color": "beige", "fabric": "cotton"},
-        {"name": "Printed {color} Palazzos", "color": None, "fabric": "cotton"},
+        {"name": "{color} Palazzo Pants", "color": None, "fabric": "cotton", "subcategory": "palazzo"},
+        {"name": "Beige Dhoti Pants", "color": "beige", "fabric": "cotton", "subcategory": None},
+        {"name": "Printed {color} Palazzos", "color": None, "fabric": "cotton", "subcategory": "palazzo"},
     ],
     "festive": [
-        {"name": "{color} Palazzo Pants", "color": None, "fabric": "silk"},
-        {"name": "Gold Sharara Pants", "color": "gold", "fabric": "silk"},
-        {"name": "{color} Lehenga Skirt", "color": None, "fabric": "silk"},
+        {"name": "{color} Palazzo Pants", "color": None, "fabric": "silk", "subcategory": "palazzo"},
+        {"name": "Gold Sharara Pants", "color": "gold", "fabric": "silk", "subcategory": None},
+        {"name": "{color} Lehenga Skirt", "color": None, "fabric": "silk", "subcategory": None},
     ],
     "wedding": [
-        {"name": "{color} Palazzo Pants", "color": None, "fabric": "silk"},
-        {"name": "Gold Sharara Pants", "color": "gold", "fabric": "silk"},
-        {"name": "{color} Lehenga Skirt", "color": None, "fabric": "silk"},
+        {"name": "{color} Palazzo Pants", "color": None, "fabric": "silk", "subcategory": "palazzo"},
+        {"name": "Gold Sharara Pants", "color": "gold", "fabric": "silk", "subcategory": None},
+        {"name": "{color} Lehenga Skirt", "color": None, "fabric": "silk", "subcategory": None},
     ],
     "streetwear": [
-        {"name": "Olive Cargo Pants", "color": "olive", "fabric": "cotton"},
-        {"name": "{color} Joggers", "color": None, "fabric": "cotton"},
-        {"name": "Baggy {color} Jeans", "color": None, "fabric": "denim"},
-        {"name": "{color} Bike Shorts", "color": None, "fabric": "synthetic"},
+        {"name": "Olive Cargo Pants", "color": "olive", "fabric": "cotton", "subcategory": "cargo_pants"},
+        {"name": "{color} Joggers", "color": None, "fabric": "cotton", "subcategory": "joggers"},
+        {"name": "Baggy {color} Jeans", "color": None, "fabric": "denim", "subcategory": "baggy_mom"},
+        {"name": "{color} Bike Shorts", "color": None, "fabric": "synthetic", "subcategory": "biker_shorts"},
     ],
     "college": [
-        {"name": "Blue Straight Jeans", "color": "blue", "fabric": "denim"},
-        {"name": "{color} Joggers", "color": None, "fabric": "cotton"},
-        {"name": "{color} Mom Jeans", "color": None, "fabric": "denim"},
-        {"name": "Pleated {color} Mini Skirt", "color": None, "fabric": "cotton"},
+        {"name": "Blue Straight Jeans", "color": "blue", "fabric": "denim", "subcategory": "straight_leg"},
+        {"name": "{color} Joggers", "color": None, "fabric": "cotton", "subcategory": "joggers"},
+        {"name": "{color} Mom Jeans", "color": None, "fabric": "denim", "subcategory": "baggy_mom"},
+        {"name": "Pleated {color} Mini Skirt", "color": None, "fabric": "cotton", "subcategory": "pleated_skirt"},
     ],
     "travel": [
-        {"name": "{color} Joggers", "color": None, "fabric": "cotton"},
-        {"name": "Khaki Comfortable Chinos", "color": "khaki", "fabric": "cotton"},
-        {"name": "{color} Culottes", "color": None, "fabric": "cotton"},
+        {"name": "{color} Joggers", "color": None, "fabric": "cotton", "subcategory": "joggers"},
+        {"name": "Khaki Comfortable Chinos", "color": "khaki", "fabric": "cotton", "subcategory": "trousers"},
+        {"name": "{color} Culottes", "color": None, "fabric": "cotton", "subcategory": "culottes"},
     ],
     "date": [
-        {"name": "{color} Skinny Jeans", "color": None, "fabric": "denim"},
-        {"name": "Black Tailored Trousers", "color": "black", "fabric": "wool"},
-        {"name": "{color} Wrap Skirt", "color": None, "fabric": "cotton"},
-        {"name": "{color} Mini Skirt", "color": None, "fabric": "synthetic"},
+        {"name": "{color} Skinny Jeans", "color": None, "fabric": "denim", "subcategory": "skinny"},
+        {"name": "Black Tailored Trousers", "color": "black", "fabric": "wool", "subcategory": "trousers"},
+        {"name": "{color} Wrap Skirt", "color": None, "fabric": "cotton", "subcategory": "wrap_skirt"},
+        {"name": "{color} Mini Skirt", "color": None, "fabric": "synthetic", "subcategory": "mini_skirt"},
     ],
     "casual": [
-        {"name": "Blue Straight Jeans", "color": "blue", "fabric": "denim"},
-        {"name": "{color} Chinos", "color": None, "fabric": "cotton"},
-        {"name": "Olive Cargo Pants", "color": "olive", "fabric": "cotton"},
-        {"name": "{color} Mom Jeans", "color": None, "fabric": "denim"},
-        {"name": "{color} Wide-Leg Pants", "color": None, "fabric": "cotton"},
+        {"name": "Blue Straight Jeans", "color": "blue", "fabric": "denim", "subcategory": "straight_leg"},
+        {"name": "{color} Chinos", "color": None, "fabric": "cotton", "subcategory": "trousers"},
+        {"name": "Olive Cargo Pants", "color": "olive", "fabric": "cotton", "subcategory": "cargo_pants"},
+        {"name": "{color} Mom Jeans", "color": None, "fabric": "denim", "subcategory": "baggy_mom"},
+        {"name": "{color} Wide-Leg Pants", "color": None, "fabric": "cotton", "subcategory": "wide_leg"},
     ],
 }
 
 _TOP_TEMPLATES: dict[str, list[dict]] = {
     "formal": [
-        {"name": "White Formal Shirt", "color": "white", "fabric": "cotton"},
-        {"name": "{color} Silk Blouse", "color": None, "fabric": "silk"},
-        {"name": "{color} Pussy-Bow Blouse", "color": None, "fabric": "silk"},
-        {"name": "Structured {color} Shell Top", "color": None, "fabric": "cotton"},
+        {"name": "White Formal Shirt", "color": "white", "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "{color} Silk Blouse", "color": None, "fabric": "silk", "subcategory": "regular_top"},
+        {"name": "{color} Pussy-Bow Blouse", "color": None, "fabric": "silk", "subcategory": "regular_top"},
+        {"name": "Structured {color} Shell Top", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
     ],
     "office": [
-        {"name": "White Shirt", "color": "white", "fabric": "cotton"},
-        {"name": "{color} Blouse", "color": None, "fabric": "cotton"},
-        {"name": "{color} Puff-Sleeve Top", "color": None, "fabric": "cotton"},
-        {"name": "Striped {color} Shirt", "color": None, "fabric": "cotton"},
+        {"name": "White Shirt", "color": "white", "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "{color} Blouse", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "{color} Puff-Sleeve Top", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "Striped {color} Shirt", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
     ],
     "party": [
-        {"name": "{color} Satin Top", "color": None, "fabric": "synthetic"},
-        {"name": "Black Bodysuit", "color": "black", "fabric": "cotton"},
-        {"name": "{color} Corset Top", "color": None, "fabric": "synthetic"},
-        {"name": "Sequin {color} Top", "color": None, "fabric": "synthetic"},
-        {"name": "{color} Halter Top", "color": None, "fabric": "synthetic"},
+        {"name": "{color} Satin Top", "color": None, "fabric": "synthetic", "subcategory": "regular_top"},
+        {"name": "Black Bodysuit", "color": "black", "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "{color} Corset Top", "color": None, "fabric": "synthetic", "subcategory": "regular_top"},
+        {"name": "Sequin {color} Top", "color": None, "fabric": "synthetic", "subcategory": "regular_top"},
+        {"name": "{color} Halter Top", "color": None, "fabric": "synthetic", "subcategory": "halter_top"},
     ],
     "traditional": [
-        {"name": "{color} Kurti", "color": None, "fabric": "cotton"},
-        {"name": "Beige Embroidered Kurta", "color": "beige", "fabric": "cotton"},
-        {"name": "{color} Anarkali Top", "color": None, "fabric": "silk"},
-        {"name": "Printed {color} Kurti", "color": None, "fabric": "cotton"},
+        {"name": "{color} Kurti", "color": None, "fabric": "cotton", "subcategory": "kurti_short"},
+        {"name": "Beige Embroidered Kurta", "color": "beige", "fabric": "cotton", "subcategory": "kurti_long"},
+        {"name": "{color} Anarkali Top", "color": None, "fabric": "silk", "subcategory": "anarkali"},
+        {"name": "Printed {color} Kurti", "color": None, "fabric": "cotton", "subcategory": "kurti_short"},
     ],
     "festive": [
-        {"name": "{color} Embellished Top", "color": None, "fabric": "silk"},
-        {"name": "Gold Silk Kurti", "color": "gold", "fabric": "silk"},
-        {"name": "{color} Sequin Blouse", "color": None, "fabric": "synthetic"},
-        {"name": "Mirror-Work {color} Top", "color": None, "fabric": "cotton"},
+        {"name": "{color} Embellished Top", "color": None, "fabric": "silk", "subcategory": "regular_top"},
+        {"name": "Gold Silk Kurti", "color": "gold", "fabric": "silk", "subcategory": "kurti_short"},
+        {"name": "{color} Sequin Blouse", "color": None, "fabric": "synthetic", "subcategory": "regular_top"},
+        {"name": "Mirror-Work {color} Top", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
     ],
     "wedding": [
-        {"name": "{color} Silk Kurti", "color": None, "fabric": "silk"},
-        {"name": "Gold Embellished Blouse", "color": "gold", "fabric": "silk"},
-        {"name": "{color} Zari Blouse", "color": None, "fabric": "silk"},
+        {"name": "{color} Silk Kurti", "color": None, "fabric": "silk", "subcategory": "kurti_short"},
+        {"name": "Gold Embellished Blouse", "color": "gold", "fabric": "silk", "subcategory": "regular_top"},
+        {"name": "{color} Zari Blouse", "color": None, "fabric": "silk", "subcategory": "regular_top"},
     ],
     "streetwear": [
-        {"name": "Grey Hoodie", "color": "grey", "fabric": "cotton"},
-        {"name": "{color} Oversized Tee", "color": None, "fabric": "cotton"},
-        {"name": "{color} Graphic Crop Top", "color": None, "fabric": "cotton"},
-        {"name": "Cropped {color} Hoodie", "color": None, "fabric": "cotton"},
+        {"name": "Grey Hoodie", "color": "grey", "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "{color} Oversized Tee", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "{color} Graphic Crop Top", "color": None, "fabric": "cotton", "subcategory": "crop_top"},
+        {"name": "Cropped {color} Hoodie", "color": None, "fabric": "cotton", "subcategory": "crop_top"},
     ],
     "college": [
-        {"name": "Black T-Shirt", "color": "black", "fabric": "cotton"},
-        {"name": "{color} Sweater", "color": None, "fabric": "knit"},
-        {"name": "{color} Crop Top", "color": None, "fabric": "cotton"},
-        {"name": "Printed {color} Tee", "color": None, "fabric": "cotton"},
+        {"name": "Black T-Shirt", "color": "black", "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "{color} Sweater", "color": None, "fabric": "knit", "subcategory": "regular_top"},
+        {"name": "{color} Crop Top", "color": None, "fabric": "cotton", "subcategory": "crop_top"},
+        {"name": "Printed {color} Tee", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
     ],
     "travel": [
-        {"name": "{color} T-Shirt", "color": None, "fabric": "cotton"},
-        {"name": "Grey Sweatshirt", "color": "grey", "fabric": "cotton"},
-        {"name": "{color} Wrap Top", "color": None, "fabric": "cotton"},
+        {"name": "{color} T-Shirt", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "Grey Sweatshirt", "color": "grey", "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "{color} Wrap Top", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
     ],
     "date": [
-        {"name": "{color} Fitted Top", "color": None, "fabric": "cotton"},
-        {"name": "Black Shirt", "color": "black", "fabric": "cotton"},
-        {"name": "{color} Cami Top", "color": None, "fabric": "silk"},
-        {"name": "{color} Wrap Blouse", "color": None, "fabric": "cotton"},
+        {"name": "{color} Fitted Top", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "Black Shirt", "color": "black", "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "{color} Cami Top", "color": None, "fabric": "silk", "subcategory": "regular_top"},
+        {"name": "{color} Wrap Blouse", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
     ],
     "casual": [
-        {"name": "White Shirt", "color": "white", "fabric": "cotton"},
-        {"name": "Black T-Shirt", "color": "black", "fabric": "cotton"},
-        {"name": "{color} Sweater", "color": None, "fabric": "knit"},
-        {"name": "{color} Crop Top", "color": None, "fabric": "cotton"},
-        {"name": "Printed {color} Blouse", "color": None, "fabric": "cotton"},
+        {"name": "White Shirt", "color": "white", "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "Black T-Shirt", "color": "black", "fabric": "cotton", "subcategory": "regular_top"},
+        {"name": "{color} Sweater", "color": None, "fabric": "knit", "subcategory": "regular_top"},
+        {"name": "{color} Crop Top", "color": None, "fabric": "cotton", "subcategory": "crop_top"},
+        {"name": "Printed {color} Blouse", "color": None, "fabric": "cotton", "subcategory": "regular_top"},
     ],
 }
 
@@ -649,6 +653,57 @@ def _suggestion_templates(selected: ClothingItem, target: str) -> list[dict]:
     if target == "outerwear":
         return _OUTERWEAR_TEMPLATES.get(occ, _OUTERWEAR_TEMPLATES["casual"])
     return []
+
+
+# -- Subcategory helpers --
+
+
+def _subcategory_to_display(sub: str | None) -> str | None:
+    """Convert a TAXONOMY subcategory label to human-readable query text.
+
+    ``"wide_leg"`` → ``"wide leg"``, ``"crop_top"`` → ``"crop top"``.
+    Returns ``None`` when *sub* is ``None``.
+    """
+    return sub.replace("_", " ") if sub else None
+
+
+def _pick_silhouette_subcategory(
+    selected: ClothingItem,
+    target_category: str,
+    template_subcategory: str | None,
+    index: int,
+) -> str | None:
+    """Pick the target subcategory from ``SILHOUETTE_RULES`` when available.
+
+    Only the bottom → top direction has rules in the current table.
+    For all other pairings (top → bottom, same-category layering, etc.)
+    the caller falls back to *template_subcategory* (the hardcoded value
+    annotated on the template dict).
+
+    Parameters
+    ----------
+    selected :
+        The wardrobe item the user picked.
+    target_category :
+        Which category we are recommending (``"top"``, ``"bottom"``, …).
+    template_subcategory :
+        The subcategory value annotated on the template dict (may be
+        ``None``).
+    index :
+        Index of the current template slot — used to cycle through
+        compatible subcategories when multiple options exist.
+    """
+    from app.fashion_taxonomy import SILHOUETTE_RULES, TAXONOMY
+
+    selected_sub = getattr(selected, "subcategory", None)
+    if not selected_sub:
+        return template_subcategory
+
+    compatible = SILHOUETTE_RULES.get(selected_sub)
+    if compatible and target_category == "top":
+        return compatible[index % len(compatible)]
+
+    return template_subcategory
 
 
 # -- Generated (non-owned) suggestions --
@@ -690,6 +745,10 @@ def _generated_suggestions(
             else tpl["name"]
         )
 
+        sub = _pick_silhouette_subcategory(
+            selected, target_category, tpl.get("subcategory"), i
+        )
+
         hypo = _HypotheticalItem(
             color=color,
             fabric_type=tpl.get("fabric"),
@@ -697,6 +756,7 @@ def _generated_suggestions(
             occasion_tag=selected.occasion_tag,
             formality_score=getattr(selected, "formality_score", None),
             target_gender=selected.target_gender,
+            subcategory=sub,
         )
         raw_score, _raw_reason, breakdown = score_pair(selected, hypo)
         pct = int(round(raw_score * 100))
@@ -720,6 +780,7 @@ def _generated_suggestions(
                 owned=False,
                 category=target_category,
                 color=color,
+                subcategory=sub,
             )
         )
 
@@ -963,7 +1024,19 @@ def style_match_to_dict(result: StyleMatchResult) -> dict:
 def build_item_match_queries(item_id: int, db: Session) -> list[dict]:
     """Build search queries for each category that matches the given item.
 
-    Returns ``[{label: "bottom", query: "Black Trousers"}, ...]``.
+    Query format: ``{color} {embellishment} {subcategory}``.
+
+    - *color* comes from the top suggestion (the colour that pairs well
+      with the selected item).
+    - *embellishment* is the first embellishment detected on the selected
+      item (echoing coordination into the search), rendered via
+      ``EMBELLISHMENT_DISPLAY``.  Skipped when the selected item has no
+      embellishments.
+    - *subcategory* is the suggestion's silhouette label converted to
+      human-readable form (e.g. ``"wide leg"``).  Falls back to the
+      category name when the suggestion has no subcategory.
+
+    Returns ``[{label: "bottom", query: "blue ribbon wide leg"}, ...]``.
     """
     selected = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
     if not selected:
@@ -972,9 +1045,29 @@ def build_item_match_queries(item_id: int, db: Session) -> list[dict]:
     partner_cats = _MATCHING_CATEGORIES.get(_normalise(selected.category), [])
     queries: list[dict] = []
 
+    # Embellishments from the selected item (for coordination echo).
+    embellishments = _parse_embellishments(getattr(selected, "embellishments", None))
+    first_emb = EMBELLISHMENT_DISPLAY.get(embellishments[0], embellishments[0]) if embellishments else None
+
     for cat in partner_cats:
         names = _generated_suggestions(selected, cat, set())
-        query = names[0].name if names else cat.capitalize()
-        queries.append({"label": cat, "query": query})
+        if not names:
+            queries.append({"label": cat, "query": cat.capitalize()})
+            continue
+
+        top = names[0]
+        sub_display = _subcategory_to_display(top.subcategory)
+
+        parts: list[str] = []
+        if top.color:
+            parts.append(top.color)
+        if first_emb:
+            parts.append(first_emb)
+        if sub_display:
+            parts.append(sub_display)
+        elif not parts:
+            parts.append(cat.capitalize())
+
+        queries.append({"label": cat, "query": " ".join(parts)})
 
     return queries

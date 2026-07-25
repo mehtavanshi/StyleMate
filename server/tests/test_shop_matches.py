@@ -195,3 +195,59 @@ class TestShopMatchesIntegration:
         data = res.json()
         assert isinstance(data, list)
         assert len(data) > 0
+
+    @patch("app.routers.shop_matches.search_all_providers", new_callable=AsyncMock)
+    @patch("app.routers.shop_matches.rank_by_visual_fit")
+    def test_enriched_query_contains_subcategory_and_embellishment(
+        self,
+        mock_rank,
+        mock_search,
+        client,
+        user_id,
+    ):
+        """An item with subcategory + embellishments produces an enriched
+        search query containing both values, not just the display name."""
+        # Create an item with known subcategory and embellishments.
+        res = client.post(
+            "/clothing-items",
+            json={
+                "user_id": user_id,
+                "name": "Blue Wide-Leg Jeans",
+                "category": "bottom",
+                "color": "blue",
+                "subcategory": "wide_leg",
+                "embellishments": '["ribbon"]',
+                "occasion_tag": "casual",
+                "image_url": "/uploads/test.jpg",
+            },
+        )
+        assert res.status_code == 201
+        item_id = res.json()["id"]
+
+        mock_product = Product(
+            name="Test Product",
+            image_url="https://example.com/img.jpg",
+            price=999.0,
+            currency="INR",
+            affiliate_link="https://example.com/buy",
+            source="flipkart",
+        )
+        captured_queries: list[str] = []
+
+        async def search_side_effect(query: str) -> list[ProviderResult]:
+            captured_queries.append(query)
+            return [ProviderResult(platform="flipkart", products=[mock_product])]
+
+        mock_search.side_effect = search_side_effect
+        mock_rank.return_value = [
+            RankedProduct(product=mock_product, similarity_score=0.85),
+        ]
+
+        res = client.get(f"/items/{item_id}/shop-matches")
+        assert res.status_code == 200
+
+        # At least one query should mention the subcategory and embellishment.
+        assert len(captured_queries) > 0
+        assert any("ribbon" in q.lower() for q in captured_queries), (
+            f"Expected 'ribbon' in queries, got: {captured_queries}"
+        )

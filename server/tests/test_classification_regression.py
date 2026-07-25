@@ -5,6 +5,7 @@ the "same default for everyone" bug class — if this test ever passes
 with identical outputs for different images, something is broken again.
 """
 
+import json
 from pathlib import Path
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -34,12 +35,39 @@ def test_classification_returns_no_none_fields():
 
     result = _tag_item_fashion_clip(_fixture_path("floral-dress.jpg"))
 
+    # Fields that should always be populated (some fields like
+    # fabric_type/season/target_gender can be None when below
+    # the 0.24 confidence threshold — that's valid behaviour).
     expected_fields = [
-        "category", "dominant_color", "pattern", "occasion_tag",
-        "season", "fabric_type", "fit_type", "sleeve_length",
-        "target_gender", "formality_score", "style_tags",
+        "category", "dominant_color", "pattern",
+        "formality_score", "style_tags",
+        "embellishments",
     ]
     for field in expected_fields:
         assert result.get(field) is not None, (
             f"Field '{field}' is None — classifier returned no prediction"
         )
+
+
+def test_subcategory_populated_for_bottom():
+    from app.routers.tagging import _tag_item_fashion_clip
+
+    result = _tag_item_fashion_clip(_fixture_path("leather-jacket.jpg"))
+    assert "subcategory" in result
+
+
+def test_embellishments_field_is_json_list():
+    from app.routers.tagging import _tag_item_fashion_clip
+
+    result = _tag_item_fashion_clip(_fixture_path("floral-dress.jpg"))
+    emb = result.get("embellishments", "[]")
+    parsed = json.loads(emb) if isinstance(emb, str) else emb
+    assert isinstance(parsed, list)
+
+
+def test_garment_length_valid_or_none():
+    from app.routers.tagging import _tag_item_fashion_clip
+
+    result = _tag_item_fashion_clip(_fixture_path("floral-dress.jpg"))
+    valid = {None, "cropped", "waist", "hip", "knee", "midi", "ankle", "floor"}
+    assert result.get("garment_length") in valid

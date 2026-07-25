@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,7 +32,7 @@ export default function CaptureScreen() {
 
   const navigation = useNavigation();
   const cameraRef = useRef<CameraView>(null);
-  const [cameraPermission] = useCameraPermissions();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [galleryPermission, setGalleryPermission] = useState<boolean | null>(null);
 
   const [step, setStep] = useState<CaptureStep>("camera");
@@ -168,9 +169,23 @@ export default function CaptureScreen() {
             <Text style={styles.permissionText}>Camera access is required to take a photo.</Text>
             <TouchableOpacity
               style={styles.button}
+              onPress={requestCameraPermission}
+            >
+              <Text style={styles.buttonText}>Grant Camera Access</Text>
+            </TouchableOpacity>
+            {!cameraPermission.canAskAgain && (
+              <TouchableOpacity
+                style={[styles.button, styles.buttonSecondary, { marginTop: spacing.sm }]}
+                onPress={() => Linking.openSettings()}
+              >
+                <Text style={styles.buttonTextSecondary}>Open Settings</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.button, styles.buttonSecondary]}
               onPress={handlePickFromGallery}
             >
-              <Text style={styles.buttonText}>Pick from Gallery instead</Text>
+              <Text style={styles.buttonTextSecondary}>Pick from Gallery instead</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>

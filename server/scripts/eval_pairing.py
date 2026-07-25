@@ -11,7 +11,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.pairing_engine import score_pair, COLOR_WEIGHT, EMBEDDING_WEIGHT, HARD_RULE_WEIGHT
+from app.pairing_engine import score_pair, COLOR_WEIGHT, EMBEDDING_WEIGHT, HARD_RULE_WEIGHT, SILHOUETTE_WEIGHT, EMBELLISHMENT_WEIGHT
 
 
 class Item:
@@ -25,8 +25,15 @@ class Item:
         pattern="solid",
         occasion_tag=None,
         formality=None,
+        formality_score=None,
         target_gender="unisex",
         embedding_json=None,
+        subcategory=None,
+        embellishments=None,
+        fabric_type=None,
+        fit_type=None,
+        season=None,
+        style_tags=None,
     ):
         self.id = 0
         self.category = category
@@ -36,8 +43,15 @@ class Item:
         self.image_url = None
         self.occasion_tag = occasion_tag
         self.formality = formality
+        self.formality_score = formality_score
         self.target_gender = target_gender
         self.embedding_json = embedding_json
+        self.subcategory = subcategory
+        self.embellishments = embellishments
+        self.fabric_type = fabric_type
+        self.fit_type = fit_type
+        self.season = season
+        self.style_tags = style_tags
 
 
 # ── Known-good pairs (should score well) ──
@@ -82,6 +96,18 @@ GOOD_PAIRS = [
     ("Black Dress + Red Heels",
      Item("Black Dress", "dress", "black", occasion_tag="party"),
      Item("Red Heels", "footwear", "red", occasion_tag="party")),
+
+    ("Wide Jeans + Crop Top (silhouette balance)",
+     Item("Crop Top", "top", "white", subcategory="crop_top"),
+     Item("Wide Leg Jeans", "bottom", "blue", subcategory="wide_leg")),
+
+    ("Sequined Top + Beaded Skirt (embellishment echo)",
+     Item("Sequined Top", "top", "black", embellishments='["sequins"]'),
+     Item("Beaded Skirt", "bottom", "navy", embellishments='["beads", "sequins"]')),
+
+    ("Plain Top + Plain Bottom (neutral embellishment)",
+     Item("Plain Tee", "top", "white", embellishments="[]"),
+     Item("Plain Trousers", "bottom", "beige", embellishments="[]")),
 ]
 
 # ── Known-bad pairs (should score poorly) ──
@@ -133,7 +159,7 @@ def run_eval():
     print("=" * 65)
     print("PAIRING ENGINE SANITY CHECK")
     print("=" * 65)
-    print(f"Weights: COLOR={COLOR_WEIGHT}  EMBEDDING={EMBEDDING_WEIGHT}  HARD_RULE={HARD_RULE_WEIGHT}")
+    print(f"Weights: COLOR={COLOR_WEIGHT}  EMBEDDING={EMBEDDING_WEIGHT}  HARD_RULE={HARD_RULE_WEIGHT}  SILHOUETTE={SILHOUETTE_WEIGHT}  EMBELLISHMENT={EMBELLISHMENT_WEIGHT}")
     print()
 
     good_scores = []
@@ -141,7 +167,7 @@ def run_eval():
 
     print("--- KNOWN-GOOD PAIRS ---")
     for label, a, b in GOOD_PAIRS:
-        score, reason = score_pair(a, b)
+        score, reason, breakdown = score_pair(a, b)
         good_scores.append((label, score))
         status = "OK" if score >= 0.45 else "LOW"
         print(f"  [{status}] {score:.3f}  {label}")
@@ -151,7 +177,7 @@ def run_eval():
     print()
     print("--- KNOWN-BAD PAIRS ---")
     for label, a, b in BAD_PAIRS:
-        score, reason = score_pair(a, b)
+        score, reason, breakdown = score_pair(a, b)
         bad_scores.append((label, score))
         status = "OK" if score <= 0.55 else "HIGH"
         print(f"  [{status}] {score:.3f}  {label}")

@@ -140,24 +140,26 @@ _SLEEVE_LAYERING_BONUS: set[tuple[str, str]] = {
 }
 
 # ── Blended scoring weights ──
-COLOR_WEIGHT = 0.35
-EMBEDDING_WEIGHT = 0.25
-HARD_RULE_WEIGHT = 0.15
-FABRIC_WEIGHT = 0.10
-FIT_WEIGHT = 0.08
-SEASON_WEIGHT = 0.07
-
-# ── Body-type style-tag scoring weight ──
-STYLE_TAG_WEIGHT = 0.07
+COLOR_WEIGHT = 0.30
+EMBEDDING_WEIGHT = 0.22
+HARD_RULE_WEIGHT = 0.12
+FABRIC_WEIGHT = 0.08
+FIT_WEIGHT = 0.07
+SEASON_WEIGHT = 0.05
+STYLE_TAG_WEIGHT = 0.06
+SILHOUETTE_WEIGHT = 0.06
+EMBELLISHMENT_WEIGHT = 0.04
 
 # ── Optional learned-compatibility override (Step 6) ──
 USE_LEARNED_COMPATIBILITY = os.environ.get("USE_LEARNED_COMPATIBILITY", "false").lower() == "true"
 
 # Weights when learned compatibility is active
 LEARNED_WEIGHT = 0.40
-LEARNED_COLOR_WEIGHT = 0.30
-LEARNED_EMBEDDING_WEIGHT = 0.20
+LEARNED_COLOR_WEIGHT = 0.25
+LEARNED_EMBEDDING_WEIGHT = 0.18
 LEARNED_HARD_RULE_WEIGHT = 0.10
+LEARNED_SILHOUETTE_WEIGHT = 0.04
+LEARNED_EMBELLISHMENT_WEIGHT = 0.03
 
 # Cache body-type rules at module load so we never re-read the file per request.
 _BODY_TYPE_RULES = get_body_type_rules()
@@ -481,6 +483,77 @@ def _parse_style_tags(raw: str | None) -> list[str]:
     return []
 
 
+def _parse_embellishments(raw: str | None) -> list[str]:
+    """Parse a JSON-serialized list of embellishments from a Text column."""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(e).strip().lower() for e in parsed if e]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
+
+
+def _silhouette_balance_score(item1: object, item2: object) -> float:
+    """Score 0–1 for how well the silhouettes balance between top and bottom.
+
+    Uses SILHOUETTE_RULES from fashion_taxonomy.py: loose/wide bottoms pair
+    well with fitted/cropped tops; fitted/skinny bottoms pair well with
+    relaxed/tunic/maxi tops.
+
+    Returns 0.5 (neutral) when either subcategory is missing or the pair
+    is not top+bottom.
+    """
+    c1 = getattr(item1, "category", None)
+    c2 = getattr(item2, "category", None)
+    s1 = getattr(item1, "subcategory", None)
+    s2 = getattr(item2, "subcategory", None)
+
+    # Determine which is the bottom, which is the top.
+    if c1 == "bottom" and c2 == "top":
+        bottom_sub = s1
+        top_sub = s2
+    elif c2 == "bottom" and c1 == "top":
+        bottom_sub = s2
+        top_sub = s1
+    else:
+        return 0.5
+
+    if not bottom_sub or not top_sub:
+        return 0.5
+
+    from app.fashion_taxonomy import SILHOUETTE_RULES
+
+    compatible_tops = SILHOUETTE_RULES.get(bottom_sub)
+    if compatible_tops is None:
+        return 0.5
+
+    return 0.9 if top_sub in compatible_tops else 0.5
+
+
+def _embellishment_coordination_score(item1: object, item2: object) -> float:
+    """Score 0–1 for embellishment echoing between items.
+
+    - Both share at least one embellishment tag → coordinated detail bonus (0.90)
+    - One has embellishments, other is plain → small plain boost (0.60)
+    - Both plain or no overlap → neutral (0.50)
+
+    Never penalises — the lowest possible score is 0.50.
+    """
+    e1 = _parse_embellishments(getattr(item1, "embellishments", None))
+    e2 = _parse_embellishments(getattr(item2, "embellishments", None))
+
+    if not e1 and not e2:
+        return 0.5
+
+    if e1 and e2:
+        return 0.9 if any(emb in e2 for emb in e1) else 0.5
+
+    return 0.6
+
+
 def _body_type_style_score(
     item: ClothingItem,
     user_body_type: str | None,
@@ -624,8 +697,9 @@ def score_pair(
     """Blended compatibility score for a pair of items.
 
     Combines color harmony, embedding similarity, hard-rule matching,
-    fabric affinity, fit contrast, season compatibility, and
-    body-type style-tag alignment.
+    fabric affinity, fit contrast, season compatibility,
+    body-type style-tag alignment, silhouette balance, and
+    embellishment coordination.
 
     Returns (score, reason, breakdown).
     Score is 0.0 when target_gender is incompatible.
@@ -644,6 +718,9 @@ def score_pair(
         + _body_type_style_score(item2, user_body_type)
     ) / 2.0
 
+    silhouette_score = _silhouette_balance_score(item1, item2)
+    embellishment_score = _embellishment_coordination_score(item1, item2)
+
     final = (
         COLOR_WEIGHT * color_score
         + EMBEDDING_WEIGHT * embed_score
@@ -652,6 +729,8 @@ def score_pair(
         + FIT_WEIGHT * fit_score
         + SEASON_WEIGHT * season_score
         + STYLE_TAG_WEIGHT * style_score
+        + SILHOUETTE_WEIGHT * silhouette_score
+        + EMBELLISHMENT_WEIGHT * embellishment_score
     )
 
     reasons = []
@@ -677,6 +756,10 @@ def score_pair(
         reasons.append("season mismatch")
     if style_score >= 0.7:
         reasons.append("flattering for body type")
+    if silhouette_score >= 0.8:
+        reasons.append("balanced silhouette")
+    if embellishment_score >= 0.8:
+        reasons.append("coordinated details")
 
     reason = "; ".join(reasons) if reasons else "mixed compatibility"
     breakdown = {
@@ -687,6 +770,8 @@ def score_pair(
         "fit": round(fit_score, 3),
         "season": round(season_score, 3),
         "style_tag": round(style_score, 3),
+        "silhouette": round(silhouette_score, 3),
+        "embellishment": round(embellishment_score, 3),
     }
     return round(final, 3), reason, breakdown
 

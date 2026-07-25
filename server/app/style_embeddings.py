@@ -87,6 +87,11 @@ def _resolve_image(image_path_or_url: str) -> Image.Image:
             tmp_path = tmp.name
         return Image.open(tmp_path).convert("RGB")
 
+    # Try as an absolute filesystem path before falling through to storage.
+    local_path = Path(image_path_or_url)
+    if local_path.exists():
+        return Image.open(local_path).convert("RGB")
+
     from app.storage import get_storage_provider
 
     provider = get_storage_provider()
@@ -267,6 +272,40 @@ def zero_shot_classify_multi(
             matches.append(label)
 
     return matches
+
+
+def zero_shot_binary_check(
+    image_path_or_url: str,
+    positive_label: str,
+    negative_label: str,
+    threshold: float = 0.0,
+) -> tuple[bool, float]:
+    """Binary zero-shot check: does the image match the positive or negative label?
+
+    Computes the image embedding once, encodes both prompts through
+    FashionCLIP, and compares cosine similarities.
+
+    Returns:
+        (True, positive_score) if positive wins and score >= threshold.
+        (False, positive_score) otherwise.
+    """
+    import torch
+
+    image_emb = get_embedding(image_path_or_url)
+    image_vec = torch.tensor(image_emb, dtype=torch.float32)
+
+    pos_vec = torch.tensor(
+        get_ensembled_label_embedding(positive_label), dtype=torch.float32
+    )
+    neg_vec = torch.tensor(
+        get_ensembled_label_embedding(negative_label), dtype=torch.float32
+    )
+
+    pos_score = float(torch.dot(image_vec, pos_vec).item())
+    neg_score = float(torch.dot(image_vec, neg_vec).item())
+
+    positive_wins = pos_score > neg_score and pos_score >= threshold
+    return positive_wins, pos_score
 
 
 GENDER_PHRASES = [

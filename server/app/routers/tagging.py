@@ -30,9 +30,23 @@ GEMINI_API_URL = os.environ.get(
 SYSTEM_PROMPT = (
     "Analyze this clothing item photo carefully. "
     "Return ONLY valid JSON (no markdown, no explanation) with these exact fields: "
-    "category, target_gender (men/women/unisex — default to unisex if the styling is "
+    "category, subcategory (a more specific type within the category — "
+    "for bottoms use one of: skinny, straight_leg, bootcut, flare, wide_leg, baggy_mom, "
+    "boyfriend, barrel_leg, mini_skirt, midi_skirt, maxi_skirt, a_line_skirt, "
+    "pencil_skirt, pleated_skirt, wrap_skirt, shorts, biker_shorts, palazzo, culottes, "
+    "joggers, cargo_pants, trousers; "
+    "for tops use one of: crop_top, regular_top, waist_length_top, tunic, maxi_top, "
+    "peplum_top, off_shoulder_top, tube_top, halter_top; "
+    "for kurti use one of: kurti_short, kurti_long, anarkali, saree, lehenga, "
+    "salwar_kameez, palazzo_suit; "
+    "for accessories use one of: bangles, jhumkas, maang_tikka, potli_bag, juttis, "
+    "nose_ring, waist_belt; otherwise null), "
+    "target_gender (men/women/unisex — default to unisex if the styling is "
     "ambiguous, do not guess), dominant_color, secondary_color (or null), pattern, "
     "fabric_type, fit_type, sleeve_length (or 'not_applicable'), "
+    "garment_length (one of: cropped, waist, hip, knee, midi, ankle, floor, or null), "
+    "embellishments (array of any that apply from: ribbon, bow, sequins, lace, tassel, "
+    "mirror_work, buttons, fringe, beads — empty array if none), "
     "occasion_tag (one of: casual, office, ethnic, party, formal, loungewear), "
     "season (one of: spring, summer, fall, winter, all-season), "
     "formality_score (1-5). "
@@ -43,7 +57,7 @@ SYSTEM_PROMPT = (
 )
 
 CANDIDATE_LABELS = {
-    "category": ["top", "bottom", "dress", "outerwear", "footwear", "accessory"],
+    "category": ["top", "bottom", "kurti", "dress", "outerwear", "footwear", "accessory"],
     "pattern": ["solid", "striped", "printed", "checked"],
     "dominant_color": [
         "black", "white", "red", "blue", "navy", "green", "yellow",
@@ -167,6 +181,10 @@ def _parse_tags(raw: str) -> dict:
     # Drop secondary_color — not stored in our model.
     data.pop("secondary_color", None)
 
+    # Normalize embellishments: Gemini returns a list, store as JSON string.
+    if "embellishments" in data and isinstance(data["embellishments"], list):
+        data["embellishments"] = json.dumps(data["embellishments"])
+
     return {"tags": data, "confidence": confidence_raw}
 
 
@@ -230,7 +248,19 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     from app.style_embeddings import (
         CONFIDENCE_THRESHOLD,
         classify_target_gender,
+        zero_shot_binary_check,
         zero_shot_classify,
+    )
+    from app.fashion_taxonomy import (
+        EMBELLISHMENT_NEGATIVE_TEMPLATE,
+        EMBELLISHMENT_POSITIVE_TEMPLATE,
+        EMBELLISHMENT_THRESHOLD,
+        EMBELLISHMENTS,
+        EMBELLISHMENT_DISPLAY,
+        GARMENT_LENGTHS,
+        get_group_labels,
+        get_group_names,
+        get_subcategory_labels,
     )
 
     tags: dict[str, str | int | None] = {}
@@ -264,6 +294,90 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
             status_code=500,
             detail=f"FashionCLIP tagging failed for all fields: {failures}",
         )
+
+    # ── Subcategory (two-stage: group → specific label) ──
+    category = tags.get("category")
+    if category and get_subcategory_labels(category):
+        try:
+            group_names = get_group_names(category)
+            if len(group_names) == 1:
+                group = group_names[0]
+            else:
+                group, group_conf = zero_shot_classify(image_url, group_names)
+                if group_conf < CONFIDENCE_THRESHOLD:
+                    tags["subcategory"] = None
+                    confidence["subcategory"] = group_conf
+                    needs_review["subcategory"] = True
+                    group = None
+
+            if group:
+                labels = get_group_labels(category, group)
+                sub_label, sub_conf = zero_shot_classify(image_url, labels)
+                confidence["subcategory"] = sub_conf
+                if sub_conf < CONFIDENCE_THRESHOLD:
+                    tags["subcategory"] = None
+                    needs_review["subcategory"] = True
+                else:
+                    tags["subcategory"] = sub_label
+                    needs_review["subcategory"] = False
+                logger.info(
+                    "FashionCLIP subcategory: %s (group=%s, %.2f) needs_review=%s",
+                    sub_label, group, sub_conf, needs_review["subcategory"],
+                )
+        except Exception as exc:
+            logger.warning("FashionCLIP subcategory failed: %s", exc)
+            tags["subcategory"] = None
+            confidence["subcategory"] = 0.0
+            needs_review["subcategory"] = True
+            failures.append("subcategory")
+    else:
+        tags["subcategory"] = None
+        confidence["subcategory"] = 1.0
+        needs_review["subcategory"] = False
+
+    # ── Embellishments (multi-label binary checks) ──
+    try:
+        matched_embellishments: list[str] = []
+        for emb in EMBELLISHMENTS:
+            phrase = EMBELLISHMENT_DISPLAY[emb]
+            pos = EMBELLISHMENT_POSITIVE_TEMPLATE.format(phrase=phrase)
+            neg = EMBELLISHMENT_NEGATIVE_TEMPLATE.format(phrase=phrase)
+            present, score = zero_shot_binary_check(
+                image_url, pos, neg, threshold=EMBELLISHMENT_THRESHOLD,
+            )
+            if present:
+                matched_embellishments.append(emb)
+        tags["embellishments"] = json.dumps(matched_embellishments)
+        confidence["embellishments"] = 1.0
+        needs_review["embellishments"] = False
+        logger.info("FashionCLIP embellishments: %s", matched_embellishments)
+    except Exception as exc:
+        logger.warning("FashionCLIP embellishments failed: %s", exc)
+        tags["embellishments"] = json.dumps([])
+        confidence["embellishments"] = 0.0
+        needs_review["embellishments"] = True
+        failures.append("embellishments")
+
+    # ── Garment length (single-best zero-shot) ──
+    try:
+        gl_label, gl_conf = zero_shot_classify(image_url, GARMENT_LENGTHS)
+        confidence["garment_length"] = gl_conf
+        if gl_conf < CONFIDENCE_THRESHOLD:
+            tags["garment_length"] = None
+            needs_review["garment_length"] = True
+        else:
+            tags["garment_length"] = gl_label
+            needs_review["garment_length"] = False
+        logger.info(
+            "FashionCLIP garment_length: %s (%.2f) needs_review=%s",
+            gl_label, gl_conf, needs_review["garment_length"],
+        )
+    except Exception as exc:
+        logger.warning("FashionCLIP garment_length failed: %s", exc)
+        tags["garment_length"] = None
+        confidence["garment_length"] = 0.0
+        needs_review["garment_length"] = True
+        failures.append("garment_length")
 
     # Denim colour refinement: denim is inherently blue/navy, never black.
     if tags.get("fabric_type") == "denim" and tags.get("dominant_color") == "black":

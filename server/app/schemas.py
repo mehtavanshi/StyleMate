@@ -83,6 +83,9 @@ class ClothingItemBase(BaseModel):
     formality_score: Optional[int] = None
     tags: Optional[str] = None
     style_tags: Optional[str] = None
+    subcategory: Optional[str] = None
+    embellishments: Optional[str] = None
+    garment_length: Optional[str] = None
 
 
 class ClothingItemCreate(ClothingItemBase):
@@ -106,6 +109,9 @@ class ClothingItemUpdate(BaseModel):
     formality_score: Optional[int] = None
     tags: Optional[str] = None
     style_tags: Optional[str] = None
+    subcategory: Optional[str] = None
+    embellishments: Optional[str] = None
+    garment_length: Optional[str] = None
 
 
 class ClothingItemResponse(ClothingItemBase):
