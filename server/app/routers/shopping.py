@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.pairing_engine import find_gaps, build_search_query
+from app.schemas import ClosetGapResponse
 from app.shopping_service import Product, get_shopping_providers
+from app.style_match import _build_shop_links
 
 router = APIRouter(tags=["shopping-suggestions"])
 
@@ -27,6 +29,29 @@ class ShoppingGroupResponse(BaseModel):
     missing_category: str
     search_query: str
     products: list[ProductResponse]
+
+
+@router.get("/closet-gaps", response_model=list[ClosetGapResponse])
+def closet_gaps(
+    user_id: int = 1,
+    target_gender: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """What the wardrobe is missing, with a ready-made shopping query per gap.
+
+    Pure local work — ``find_gaps`` counts and ``build_search_query`` composes
+    deterministically, so this stays fast and hits no external API (unlike
+    /shopping-suggestions, which then searches providers).
+    """
+    return [
+        ClosetGapResponse(
+            missing_category=gap.missing_category,
+            reason=gap.reason,
+            search_query=(query := build_search_query(gap, db, target_gender=target_gender)),
+            shopping_links=_build_shop_links(query),
+        )
+        for gap in find_gaps(user_id, db)
+    ]
 
 
 @router.get("/shopping-suggestions", response_model=list[ShoppingGroupResponse])

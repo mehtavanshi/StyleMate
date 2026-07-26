@@ -185,6 +185,53 @@ export interface OutfitSuggestion {
   breakdown: Record<string, number>;
 }
 
+export interface SmartOutfitResponse {
+  query: string;
+  params: {
+    occasion_tag: string | null;
+    formality_level: number | null;
+    season: string | null;
+    target_gender: string | null;
+    vibe: string | null;
+    source: string;
+  };
+  confidence: "high" | "medium" | "low";
+  outfits: OutfitSuggestion[];
+}
+
+export interface WeatherInfo {
+  city: string;
+  temp_c: number;
+  condition: string;
+  humidity: number | null;
+  icon: string | null;
+}
+
+export interface WeatherOutfitResponse {
+  weather: WeatherInfo | null;
+  guidance: { season: string; fabrics: string[] } | null;
+  outfit: OutfitSuggestion | null;
+  message: string | null;
+}
+
+export interface CapsuleItem {
+  id: number;
+  name: string | null;
+  category: string;
+  color: string | null;
+  pattern: string | null;
+  image_url: string | null;
+  outfit_count: number;
+}
+
+export interface CapsuleResponse {
+  items: CapsuleItem[];
+  total_outfits: number;
+  pair_count: number;
+  categories: Record<string, number>;
+  wardrobe_size: number;
+}
+
 export const outfitApi = {
   suggest: (params?: { occasion_tag?: string; target_gender?: string; limit?: number }) => {
     const query = new URLSearchParams();
@@ -194,6 +241,34 @@ export const outfitApi = {
     if (params?.limit) query.set("limit", String(params.limit));
     return apiFetch<OutfitSuggestion[]>(`/outfit-suggestions?${query.toString()}`);
   },
+
+  smartSuggest: (query: string, limit = 5) =>
+    apiFetch<SmartOutfitResponse>("/smart-outfit", {
+      method: "POST",
+      body: JSON.stringify({ query, limit, user_id: DEMO_USER_ID }),
+    }),
+
+  weatherSuggest: (city?: string) => {
+    const params = new URLSearchParams();
+    params.set("user_id", String(DEMO_USER_ID));
+    if (city) params.set("city", city);
+    return apiFetch<WeatherOutfitResponse>(`/weather-outfit?${params.toString()}`);
+  },
+
+  buildCapsule: (params?: {
+    target_item_count?: number;
+    occasion_tag?: string | null;
+    locked_item_ids?: number[];
+  }) =>
+    apiFetch<CapsuleResponse>("/capsule-wardrobe", {
+      method: "POST",
+      body: JSON.stringify({
+        target_item_count: params?.target_item_count ?? 20,
+        occasion_tag: params?.occasion_tag ?? null,
+        locked_item_ids: params?.locked_item_ids ?? [],
+        user_id: DEMO_USER_ID,
+      }),
+    }),
 };
 
 export interface OutfitFeedback {
@@ -228,6 +303,13 @@ export interface ShoppingGroup {
   products: ShoppingProduct[];
 }
 
+export interface ClosetGap {
+  missing_category: string;
+  reason: string;
+  search_query: string;
+  shopping_links: ShopLink[];
+}
+
 export const shoppingApi = {
   suggest: (params?: { target_gender?: string; occasion_tag?: string }) => {
     const query = new URLSearchParams();
@@ -235,6 +317,13 @@ export const shoppingApi = {
     if (params?.target_gender) query.set("target_gender", params.target_gender);
     if (params?.occasion_tag) query.set("occasion_tag", params.occasion_tag);
     return apiFetch<ShoppingGroup[]>(`/shopping-suggestions?${query.toString()}`);
+  },
+
+  gaps: (targetGender?: string) => {
+    const query = new URLSearchParams();
+    query.set("user_id", String(DEMO_USER_ID));
+    if (targetGender) query.set("target_gender", targetGender);
+    return apiFetch<ClosetGap[]>(`/closet-gaps?${query.toString()}`);
   },
 };
 
@@ -364,6 +453,126 @@ export interface StyleAdviceResponse {
 export const styleAdviceApi = {
   get: (itemId: number) =>
     apiFetch<StyleAdviceResponse>(`/style-advice?item_id=${itemId}`),
+
+  explain: (outfitItemIds: number[]) =>
+    apiFetch<{ explanation: string }>("/explain-outfit", {
+      method: "POST",
+      body: JSON.stringify({ outfit_item_ids: outfitItemIds }),
+    }),
+};
+
+export interface PackingGroup {
+  category: string;
+  quantity: number;
+  note: string;
+}
+
+export interface PackingItem {
+  id: number;
+  name: string | null;
+  category: string;
+  color: string | null;
+  image_url: string | null;
+  note: string;
+}
+
+export interface PackingMissingGroup {
+  category: string;
+  quantity_needed: number;
+  note: string;
+  search_query: string;
+  shopping_links: ShopLink[];
+}
+
+export interface PackingList {
+  destination: string;
+  duration: number;
+  purpose: string;
+  weather_note: string;
+  tips: string[];
+  groups: PackingGroup[];
+  selected_items: PackingItem[];
+  missing_groups: PackingMissingGroup[];
+  ai_backed: boolean;
+}
+
+export const packingApi = {
+  purposes: () => apiFetch<{ purposes: string[] }>("/packing/purposes"),
+
+  generate: (destination: string, duration: number, purpose: string) =>
+    apiFetch<PackingList>("/packing/packing-list", {
+      method: "POST",
+      body: JSON.stringify({ destination, duration, purpose, user_id: DEMO_USER_ID }),
+    }),
+};
+
+export interface RatingScore {
+  score: number;
+  reason: string;
+}
+
+export interface FashionRating {
+  available: boolean;
+  message?: string;
+  scores?: Record<string, RatingScore>;
+  average_score?: number;
+  suggestions?: string[];
+  vibe_tags?: string[];
+  primary_colors_detected?: string[];
+}
+
+export const fashionRatingApi = {
+  rate: (imageUrl?: string) =>
+    apiFetch<FashionRating>("/fashion-rating/rate", {
+      method: "POST",
+      body: JSON.stringify({ image_url: imageUrl ?? null, user_id: DEMO_USER_ID }),
+    }),
+};
+
+export interface WornItem {
+  id: number;
+  name: string | null;
+  category: string;
+  color: string | null;
+  image_url: string | null;
+  wear_count: number;
+}
+
+export interface WearAnalytics {
+  days: number;
+  total_wears: number;
+  items_worn: number;
+  wardrobe_size: number;
+  most_worn: WornItem[];
+  never_worn: WornItem[];
+}
+
+export interface RepeatWarning {
+  item_id: number;
+  item_name: string;
+  category: string | null;
+  wear_count: number;
+  message: string;
+  alternative: WornItem | null;
+}
+
+export interface RepeatCheck {
+  days: number;
+  threshold: number;
+  warnings: RepeatWarning[];
+}
+
+export const wearApi = {
+  analytics: (days = 30) =>
+    apiFetch<WearAnalytics>(
+      `/calendar/analytics?user_id=${DEMO_USER_ID}&days=${days}`,
+    ),
+
+  repeatCheck: (itemIds: number[], days = 30) =>
+    apiFetch<RepeatCheck>(
+      `/calendar/repeat-check?user_id=${DEMO_USER_ID}&days=${days}` +
+        `&outfit_item_ids=${itemIds.join(",")}`,
+    ),
 };
 
 export interface TryOnJob {

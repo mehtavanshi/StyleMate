@@ -51,7 +51,31 @@ All planned improvements complete.
 
 ---
 
-## Phase 4 — AI Feature Expansion
+## Phase 4 — AI Feature Expansion ✅
+
+**Status:** all eight features implemented (server + client).
+
+| Feature | Endpoint(s) | Client |
+|---------|-------------|--------|
+| 4.1 Closet Gap Analysis | `GET /closet-gaps` | Home "Closet Gaps" carousel → store links |
+| 4.2 AI Stylist | `POST /explain-outfit` | "Why this works?" panel on each suggestion |
+| 4.3 Smart Outfit Generator | `POST /smart-outfit` | Query bar + confidence badge on Outfits |
+| 4.4 Weather Recommendations | `GET /weather-outfit` | Home weather widget (needs `WEATHER_API_KEY`) |
+| 4.5 AI Packing Assistant | `POST /packing/packing-list` | `app/packing.tsx` |
+| 4.6 Capsule Wardrobe Builder | `POST /capsule-wardrobe` | `app/capsule.tsx` |
+| 4.7 AI Fashion Rating | `POST /fashion-rating/rate` | `app/style-rating.tsx` |
+| 4.8 Calendar Enhancements | `GET /calendar/analytics`, `GET /calendar/repeat-check` | Repeat-warning banner in Calendar |
+
+Notes:
+- The three new screens are stack routes reached from the Home "AI Tools" list,
+  not tabs — a 9-tab bar doesn't fit on a phone. Move them into
+  `app/app/(tabs)/` if tabs are preferred.
+- Every Gemini feature has a non-AI fallback (keyword parsing, ratio-based
+  packing, pairing-engine reason text) so nothing 500s without a key.
+- Wear tracking reads `CalendarEntry.locked_outfit_id`, which stores only the
+  outfit's primary item. See the `ponytail:` note in
+  `server/app/services/calendar_service.py`.
+- Logic checks live in `server/tests/test_phase4.py` (12 tests, no network).
 
 ### Overview
 

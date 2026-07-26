@@ -20,7 +20,7 @@ from app import models  # noqa: F401
 from app.config import load_body_type_rules
 from app.models import User, ClothingItem
 from app.celery_app import celery_app  # noqa: F401
-from app.routers import users, clothing, upload, tagging, outfits, calendar, shopping, style_match, shop_matches, style_advice, tryon
+from app.routers import users, clothing, upload, tagging, outfits, calendar, shopping, style_match, shop_matches, style_advice, tryon, packing, fashion_rating
 from app.schemas import ClothingItemCreate, ClothingItemResponse
 from app.storage import get_storage_provider
 from app.style_embeddings import compute_and_store_embedding
@@ -29,7 +29,11 @@ logger = logging.getLogger(__name__)
 
 UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
 
-if not os.environ.get("DATABASE_URL"):
+# Auto-create tables only for local SQLite; Postgres schema is alembic's job.
+# Asked of the engine rather than of DATABASE_URL, because app.database may have
+# been imported (and the engine chosen) before .env was loaded — as happens when
+# a test imports app.database first.
+if engine.dialect.name == "sqlite":
     Base.metadata.create_all(bind=engine)
 
 load_body_type_rules()
@@ -65,6 +69,9 @@ app.include_router(style_match.router)
 app.include_router(shop_matches.router)
 app.include_router(style_advice.router)
 app.include_router(tryon.router)
+app.include_router(calendar.analytics_router)
+app.include_router(packing.router)
+app.include_router(fashion_rating.router)
 
 
 @app.get("/health")

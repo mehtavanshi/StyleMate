@@ -188,6 +188,7 @@ class ClosetGapResponse(BaseModel):
     missing_category: str
     reason: str
     search_query: str
+    shopping_links: list[dict] = []
 
 
 

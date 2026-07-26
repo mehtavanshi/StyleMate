@@ -44,13 +44,30 @@ StyleMate is an **AI-powered wardrobe management and outfit-pairing app**. It he
 - [ ] Style profile — learn user preferences over time
 
 ### Phase 6 — Shopping & Discovery
-- [ ] Shopping suggestions — recommend pieces to fill wardrobe gaps
-- [ ] Link to stores for recommended items
+- [x] Shopping suggestions — recommend pieces to fill wardrobe gaps
+- [x] Link to stores for recommended items
+- [x] Closet gap analysis on the home screen (`GET /closet-gaps`)
 
 ### Phase 7 — Advanced Visualization
 - [ ] Virtual try-on — see how an outfit looks on your body type
 - [ ] Hairstyle try-on — match hairstyles to outfits and face shape
 
+### Phase 8 — AI Feature Expansion (plan.md Phase 4) ✅
+- [x] Closet gap analysis — `GET /closet-gaps`, home carousel with store links
+- [x] AI stylist explanations — `POST /explain-outfit`, "Why this works?" panel
+- [x] Smart outfit generator — `POST /smart-outfit`, natural-language query bar
+- [x] Weather recommendations — `GET /weather-outfit` (needs `WEATHER_API_KEY`)
+- [x] AI packing assistant — `POST /packing/packing-list`, `app/packing.tsx`
+- [x] Capsule wardrobe builder — `POST /capsule-wardrobe`, `app/capsule.tsx`
+- [x] AI fashion rating — `POST /fashion-rating/rate`, `app/style-rating.tsx`
+- [x] Calendar wear analytics — `GET /calendar/analytics`, `/calendar/repeat-check`
+
+All Gemini calls route through `gemini_json` / `gemini_text` in
+`server/app/style_advisor.py`, and each feature degrades to a non-AI fallback
+when no key is set.
+
 ---
 
-**Last updated:** Step 1.1 — New database models (User, ClothingItem), migration script, seed script with 5 sample items.
+**Last updated:** plan.md Phase 4 complete — eight AI features (gap analysis,
+outfit explanations, smart generator, weather picks, packing, capsule, style
+rating, wear analytics) across `server/app/services/` and three new screens.

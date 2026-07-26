@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import ClothingItem
 from app.shopping_service import search_all_providers
-from app.style_advisor import get_style_advice
+from app.style_advisor import explain_outfit, get_style_advice
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,27 @@ class StyleAdviceResponse(BaseModel):
     accessories: list[SuggestionWithProducts]
     layering: list[SuggestionWithProducts]
     reasoning: str
+
+
+class ExplainOutfitIn(BaseModel):
+    outfit_item_ids: list[int]
+
+
+@router.post("/explain-outfit")
+def explain_outfit_endpoint(payload: ExplainOutfitIn, db: Session = Depends(get_db)):
+    """Stylist-voice explanation of why an outfit works.
+
+    Falls back to the pairing engine's own reason text when Gemini is
+    unreachable, so the client never has to handle an empty response.
+    """
+    items = (
+        db.query(ClothingItem)
+        .filter(ClothingItem.id.in_(payload.outfit_item_ids))
+        .all()
+    )
+    if not items:
+        raise HTTPException(status_code=404, detail="No items found for those IDs")
+    return {"explanation": explain_outfit(items, db)}
 
 
 async def _search_one(suggestion: str, gender: str | None = None) -> list[dict[str, Any]]:

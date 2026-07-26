@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -22,18 +23,23 @@ import {
   outfitApi,
   feedbackApi,
   shoppingApi,
+  styleAdviceApi,
   tryOnApi,
   TryOnJob,
   OutfitSuggestion,
   OutfitItem,
   ShoppingGroup,
   ShoppingProduct,
+  SmartOutfitResponse,
 } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
 import { resolveImageUrl } from "../../lib/constants";
 import TryOnUsageBadge from "../../components/TryOnUsageBadge";
 import {
+  ChevronDown,
+  ChevronUp,
   RefreshCw,
+  Send,
   Sparkles,
   Star,
   ThumbsDown,
@@ -239,6 +245,11 @@ export default function OutfitSuggestionsScreen() {
   const [shoppingLoading, setShoppingLoading] = useState(true);
   const [shoppingError, setShoppingError] = useState(false);
   const [hasPhoto, setHasPhoto] = useState(false);
+  const [smartQuery, setSmartQuery] = useState("");
+  const [smartLoading, setSmartLoading] = useState(false);
+  const [smartResult, setSmartResult] = useState<SmartOutfitResponse | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [explanations, setExplanations] = useState<Record<string, string>>({});
   const [tryOnStates, setTryOnStates] = useState<Record<string, TryOnCardState>>({});
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const messageRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
@@ -276,12 +287,50 @@ export default function OutfitSuggestionsScreen() {
         target_gender: selectedTargetGender || undefined,
       });
       setSuggestions(data);
+      setSmartResult(null);
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally {
       setLoading(false);
     }
   }, [selectedOccasion, selectedTargetGender]);
+
+  // ── Smart outfit generator (4.3) ──
+  const runSmartQuery = async () => {
+    const query = smartQuery.trim();
+    if (!query || smartLoading) return;
+    setSmartLoading(true);
+    try {
+      const result = await outfitApi.smartSuggest(query);
+      setSmartResult(result);
+      setSuggestions(result.outfits);
+      setExplanations({});
+      if (result.outfits.length === 0) showToast("No outfits matched that request");
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    } finally {
+      setSmartLoading(false);
+    }
+  };
+
+  // ── "Why this works" (4.2) ──
+  const toggleExplanation = async (key: string, itemIds: number[]) => {
+    if (expanded[key]) {
+      setExpanded((e) => ({ ...e, [key]: false }));
+      return;
+    }
+    setExpanded((e) => ({ ...e, [key]: true }));
+    if (explanations[key]) return;
+    try {
+      const { explanation } = await styleAdviceApi.explain(itemIds);
+      setExplanations((e) => ({ ...e, [key]: explanation }));
+    } catch {
+      setExplanations((e) => ({
+        ...e,
+        [key]: "Could not load an explanation right now.",
+      }));
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -492,6 +541,33 @@ export default function OutfitSuggestionsScreen() {
         <BreakdownBar breakdown={item.breakdown || {}} />
         <BreakdownLegend breakdown={item.breakdown || {}} />
 
+        <TouchableOpacity
+          style={styles.whyBtn}
+          onPress={() => toggleExplanation(key, itemIds)}
+          accessibilityLabel="Why this outfit works"
+        >
+          <Sparkles size={14} color={colors.text.secondary} strokeWidth={1.5} />
+          <Text style={styles.whyBtnText}>Why this works?</Text>
+          {expanded[key] ? (
+            <ChevronUp size={14} color={colors.text.light} strokeWidth={1.5} />
+          ) : (
+            <ChevronDown size={14} color={colors.text.light} strokeWidth={1.5} />
+          )}
+        </TouchableOpacity>
+
+        {expanded[key] && (
+          <View style={styles.whyPanel}>
+            {explanations[key] ? (
+              <Text style={styles.whyText}>{explanations[key]}</Text>
+            ) : (
+              <>
+                <View style={[styles.skeletonLine, { width: "95%" }]} />
+                <View style={[styles.skeletonLine, { width: "80%" }]} />
+              </>
+            )}
+          </View>
+        )}
+
         <View style={styles.feedbackRow}>
           <TouchableOpacity
             style={[styles.feedbackBtn, given && styles.feedbackBtnDisabled]}
@@ -663,6 +739,59 @@ export default function OutfitSuggestionsScreen() {
 
       <TryOnUsageBadge />
 
+      {/* Smart outfit query (4.3) */}
+      <View style={styles.smartBar}>
+        <TextInput
+          style={styles.smartInput}
+          placeholder="Describe what you need... (e.g. 'interview tomorrow')"
+          placeholderTextColor={colors.text.muted}
+          value={smartQuery}
+          onChangeText={setSmartQuery}
+          onSubmitEditing={runSmartQuery}
+          returnKeyType="search"
+        />
+        <TouchableOpacity
+          style={[styles.smartBtn, (!smartQuery.trim() || smartLoading) && styles.smartBtnDisabled]}
+          onPress={runSmartQuery}
+          disabled={!smartQuery.trim() || smartLoading}
+          accessibilityLabel="Generate outfits for this request"
+        >
+          {smartLoading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Send size={16} color="#fff" strokeWidth={1.5} />
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {smartResult && (
+        <View style={styles.smartResultRow}>
+          <View
+            style={[
+              styles.confidenceBadge,
+              smartResult.confidence === "high" && styles.confidenceHigh,
+              smartResult.confidence === "low" && styles.confidenceLow,
+            ]}
+          >
+            <Text style={styles.confidenceText}>
+              {smartResult.confidence} confidence match
+            </Text>
+          </View>
+          <Text style={styles.smartParams} numberOfLines={1}>
+            {[
+              smartResult.params.occasion_tag,
+              smartResult.params.vibe,
+              smartResult.params.season,
+              smartResult.params.formality_level
+                ? `formality ${smartResult.params.formality_level}/5`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || "nothing specific detected"}
+          </Text>
+        </View>
+      )}
+
       {/* Occasion chips */}
       <View style={styles.chipBar}>
         <FlatList
@@ -769,6 +898,74 @@ const styles = StyleSheet.create({
 
   // Chips
   chipBar: { backgroundColor: colors.surface, paddingBottom: spacing.sm + 2, borderBottomWidth: 1, borderBottomColor: colors.border },
+
+  // Smart outfit query (4.3)
+  smartBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm + 2,
+  },
+  smartInput: {
+    flex: 1,
+    backgroundColor: colors.background,
+    borderRadius: br.md,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    fontSize: fontSize.sm,
+    color: colors.text.primary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  smartBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  smartBtnDisabled: { opacity: 0.4 },
+  smartResultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm + 2,
+  },
+  confidenceBadge: {
+    backgroundColor: colors.warning + "22",
+    borderRadius: br.full,
+    paddingVertical: spacing.xs - 1,
+    paddingHorizontal: spacing.md,
+  },
+  confidenceHigh: { backgroundColor: colors.success + "22" },
+  confidenceLow: { backgroundColor: colors.danger + "1a" },
+  confidenceText: { fontSize: fontSize.xs, color: colors.accent, textTransform: "capitalize" },
+  smartParams: { flex: 1, fontSize: fontSize.xs, color: colors.text.light },
+
+  // "Why this works" (4.2)
+  whyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    alignSelf: "flex-start",
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  whyBtnText: { fontSize: fontSize.xs + 1, color: colors.text.secondary, fontWeight: fontWeight.semibold },
+  whyPanel: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+    backgroundColor: colors.background,
+    borderRadius: br.md,
+    gap: spacing.xs,
+  },
+  whyText: { fontSize: fontSize.sm, color: colors.text.primary, lineHeight: 20 },
   chipList: { paddingHorizontal: spacing.md, paddingTop: spacing.sm + 2 },
   chip: { paddingHorizontal: spacing.sm + 6, paddingVertical: spacing.xs + 3, borderRadius: 20, backgroundColor: "#e8e8e8", marginRight: spacing.sm },
   chipActive: { backgroundColor: colors.accent },

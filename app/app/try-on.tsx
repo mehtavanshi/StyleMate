@@ -174,7 +174,9 @@ export default function TryOnScreen() {
     if (!job?.result_image_url) return;
     setSaving(true);
     try {
-      const FileSystem = await import("expo-file-system");
+      // The legacy entry keeps cacheDirectory + downloadAsync; the new
+      // expo-file-system root export dropped them.
+      const FileSystem = await import("expo-file-system/legacy");
       const Sharing = await import("expo-sharing");
       const imageUri = resolvePhotoUrl(job.result_image_url, BASE_URL) ?? job.result_image_url;
       const localUri = FileSystem.cacheDirectory + "try-on-result.jpg";

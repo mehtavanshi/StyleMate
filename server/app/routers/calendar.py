@@ -11,8 +11,42 @@ from app.schemas import (
     CalendarEntryResponse,
     CalendarEntryUpdate,
 )
+from app.services.calendar_service import check_outfit_repeat, get_item_wear_history
 
 router = APIRouter(prefix="/calendar-entries", tags=["calendar"])
+
+# Wear analytics sit outside the /calendar-entries CRUD prefix so the paths
+# read as the plan specifies (/calendar/analytics, /calendar/repeat-check).
+analytics_router = APIRouter(prefix="/calendar", tags=["calendar"])
+
+
+@analytics_router.get("/analytics")
+def calendar_analytics(
+    user_id: int = 1,
+    days: int = 30,
+    db: Session = Depends(get_db),
+):
+    """Wear frequency over the last N days, from locked calendar outfits."""
+    return get_item_wear_history(user_id, max(1, min(days, 365)), db)
+
+
+@analytics_router.get("/repeat-check")
+def repeat_check(
+    outfit_item_ids: str,
+    user_id: int = 1,
+    days: int = 30,
+    db: Session = Depends(get_db),
+):
+    """Flag over-worn items in a candidate outfit. ``outfit_item_ids``: "1,2,3"."""
+    try:
+        item_ids = [int(part) for part in outfit_item_ids.split(",") if part.strip()]
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail="outfit_item_ids must be comma-separated integers"
+        )
+    if not item_ids:
+        raise HTTPException(status_code=422, detail="outfit_item_ids is required")
+    return check_outfit_repeat(user_id, item_ids, db, days=max(1, min(days, 365)))
 
 
 class TryOnImageLink(BaseModel):

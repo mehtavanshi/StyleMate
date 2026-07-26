@@ -928,6 +928,150 @@ class OutfitSuggestion:
             self.breakdown = {}
 
 
+# ── Capsule wardrobe (Feature 4.6) ──
+
+# A pair only counts toward a capsule's outfit total if it actually works.
+CAPSULE_PAIR_THRESHOLD = 0.60
+# Categories that can be combined into an outfit, and what they pair with.
+_CAPSULE_PAIRABLE = {
+    ("top", "bottom"),
+    ("top", "footwear"),
+    ("bottom", "footwear"),
+    ("dress", "footwear"),
+    ("top", "outerwear"),
+    ("dress", "outerwear"),
+    ("top", "accessory"),
+    ("dress", "accessory"),
+    ("bottom", "accessory"),
+}
+
+
+def _capsule_pairable(cat1: str | None, cat2: str | None) -> bool:
+    a, b = _normalise(cat1), _normalise(cat2)
+    return (a, b) in _CAPSULE_PAIRABLE or (b, a) in _CAPSULE_PAIRABLE
+
+
+def _count_outfits(items: list[ClothingItem], good: set[frozenset[int]]) -> int:
+    """Complete outfits buildable from ``items``: top+bottom(+shoes) and dress+shoes.
+
+    Only counts combinations whose every pair scored above the threshold, so
+    the number means "outfits you'd actually wear", not raw combinatorics.
+    """
+    by_cat: dict[str, list[ClothingItem]] = {}
+    for i in items:
+        by_cat.setdefault(_normalise(i.category), []).append(i)
+
+    def ok(a: ClothingItem, b: ClothingItem) -> bool:
+        return frozenset((a.id, b.id)) in good
+
+    total = 0
+    shoes = by_cat.get("footwear", [])
+    for top in by_cat.get("top", []):
+        for bottom in by_cat.get("bottom", []):
+            if not ok(top, bottom):
+                continue
+            total += 1  # top + bottom on its own
+            total += sum(1 for s in shoes if ok(top, s) and ok(bottom, s))
+    for dress in by_cat.get("dress", []):
+        total += 1
+        total += sum(1 for s in shoes if ok(dress, s))
+    return total
+
+
+def build_capsule(
+    user_id: int,
+    target_count: int = 20,
+    occasion_filter: str | None = None,
+    db: Session | None = None,
+    locked_item_ids: list[int] | None = None,
+) -> dict:
+    """Pick the ``target_count`` items that yield the most wearable outfits.
+
+    Greedy: start from the items the user locked (or the most neutral piece),
+    then repeatedly add whichever remaining item creates the most new complete
+    outfits. Greedy is not optimal but is O(n² · target) instead of
+    combinatorial, and on wardrobe-sized inputs it lands within a couple of
+    outfits of exhaustive search.
+    """
+    from app.models import User
+
+    if db is None:
+        raise ValueError("build_capsule requires a db session")
+
+    query = db.query(ClothingItem).filter(ClothingItem.user_id == user_id)
+    if occasion_filter:
+        query = query.filter(ClothingItem.occasion_tag.contains(occasion_filter))
+    items = query.all()
+
+    user = db.query(User).filter(User.id == user_id).first() if items else None
+    body_type = getattr(user, "body_type", None) if user else None
+
+    # Score every pairable combination once, up front.
+    good: set[frozenset[int]] = set()
+    pair_scores: dict[frozenset[int], float] = {}
+    for idx, a in enumerate(items):
+        for b in items[idx + 1:]:
+            if not _capsule_pairable(a.category, b.category):
+                continue
+            score, _, _ = score_pair(a, b, body_type)
+            pair_scores[frozenset((a.id, b.id))] = score
+            if score >= CAPSULE_PAIR_THRESHOLD:
+                good.add(frozenset((a.id, b.id)))
+
+    locked = [i for i in items if i.id in set(locked_item_ids or [])]
+    selected: list[ClothingItem] = list(locked)
+    remaining = [i for i in items if i not in selected]
+
+    # Seed with the most versatile item — the one in the most good pairs.
+    if not selected and remaining:
+        seed = max(
+            remaining,
+            key=lambda i: sum(1 for p in good if i.id in p),
+        )
+        selected.append(seed)
+        remaining.remove(seed)
+
+    target = min(target_count, len(items))
+    while len(selected) < target and remaining:
+        base = _count_outfits(selected, good)
+        best, best_gain, best_tiebreak = None, -1, -1.0
+        for candidate in remaining:
+            gain = _count_outfits(selected + [candidate], good) - base
+            # Tie-break on total pair strength so a stalled greedy pass still
+            # picks the item that coordinates best with what's already in.
+            tiebreak = sum(
+                pair_scores.get(frozenset((candidate.id, s.id)), 0.0) for s in selected
+            )
+            if gain > best_gain or (gain == best_gain and tiebreak > best_tiebreak):
+                best, best_gain, best_tiebreak = candidate, gain, tiebreak
+        if best is None:
+            break
+        selected.append(best)
+        remaining.remove(best)
+
+    categories: Counter = Counter(_normalise(i.category) for i in selected)
+    return {
+        "items": [
+            {
+                "id": i.id,
+                "name": i.name,
+                "category": i.category,
+                "color": i.color,
+                "pattern": i.pattern,
+                "image_url": i.image_url,
+                "outfit_count": sum(1 for p in good if i.id in p),
+            }
+            for i in selected
+        ],
+        "total_outfits": _count_outfits(selected, good),
+        "pair_count": sum(
+            1 for p in good if all(any(i.id == m for i in selected) for m in p)
+        ),
+        "categories": dict(categories),
+        "wardrobe_size": len(items),
+    }
+
+
 def _recommender_ml_weight(feedback_count: int) -> float:
     """Adaptive LightFM blend weight.
 
@@ -947,8 +1091,13 @@ def suggest_outfits(
     occasion_tag: str | None = None,
     target_gender: str | None = None,
     limit: int = 5,
+    items: list[ClothingItem] | None = None,
 ) -> list[OutfitSuggestion]:
     """Load user's items and return top outfit combinations.
+
+    Pass ``items`` to score a pre-filtered subset (e.g. weather-appropriate
+    pieces) instead of the whole wardrobe; the occasion/gender filters are
+    then assumed to have been applied by the caller.
 
     The final score blends the existing rule-based + FashionCLIP score with a
     learned LightFM recommendation score. The learned weight starts at 0% for
@@ -974,13 +1123,16 @@ def suggest_outfits(
         except Exception:  # pragma: no cover - defensive
             ml_available = False
 
-    query = db.query(ClothingItem).filter(ClothingItem.user_id == user_id)
-    if occasion_tag:
-        query = query.filter(ClothingItem.occasion_tag.contains(occasion_tag))
-    if target_gender:
-        query = query.filter(ClothingItem.target_gender == target_gender)
+    if items is not None:
+        all_items = items
+    else:
+        query = db.query(ClothingItem).filter(ClothingItem.user_id == user_id)
+        if occasion_tag:
+            query = query.filter(ClothingItem.occasion_tag.contains(occasion_tag))
+        if target_gender:
+            query = query.filter(ClothingItem.target_gender == target_gender)
 
-    all_items = query.all()
+        all_items = query.all()
 
     # Group by category
     by_category: dict[str, list[ClothingItem]] = {}

@@ -1,18 +1,30 @@
 """AI-powered style advisor that uses Gemini to suggest outfit completions
 for a single wardrobe item, returning structured suggestions for shoes,
-accessories, and layering pieces with styling reasoning."""
+accessories, and layering pieces with styling reasoning.
+
+Also hosts ``gemini_text`` / ``gemini_json`` — the single Gemini call path
+shared by every Gemini-backed feature (style advice, outfit explanations,
+natural-language outfit queries, packing lists, photo ratings)."""
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 
 import httpx
+from cachetools import TTLCache
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.models import ClothingItem
 from app.retry import call_with_retry
-from app.routers.tagging import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_MODEL
+from app.routers.tagging import (
+    GEMINI_API_KEY,
+    GEMINI_API_URL,
+    GEMINI_MODEL,
+    _read_image,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,66 +87,162 @@ def _parse_advice_response(raw_text: str) -> dict | None:
         return None
 
 
-def get_style_advice(item: ClothingItem) -> StyleAdvice:
+def gemini_text(
+    prompt: str,
+    max_tokens: int = 500,
+    temperature: float = 0.4,
+    image_url: str | None = None,
+) -> str | None:
+    """One Gemini generateContent call. Returns the raw text, or None on failure.
+
+    Every Gemini-backed feature routes through here so the key check, retry,
+    timeout, and error swallowing live in exactly one place. Pass
+    ``image_url`` to attach an image (Gemini Vision).
+    """
     if not GEMINI_API_KEY:
-        logger.warning("GEMINI_API_KEY not set — returning empty style advice")
-        return StyleAdvice(shoes=[], accessories=[], layering=[], reasoning="")
+        logger.warning("GEMINI_API_KEY not set — skipping Gemini call")
+        return None
 
-    parts: list[str] = []
-    if item.category:
-        parts.append(item.category)
-    if item.color:
-        parts.append(item.color)
-    if item.pattern and item.pattern != "solid":
-        parts.append(item.pattern)
-    if item.fit_type:
-        parts.append(f"{item.fit_type}-fit")
-    if item.fabric_type:
-        parts.append(item.fabric_type)
+    parts: list[dict] = [{"text": prompt}]
+    if image_url:
+        try:
+            image_data, content_type = _read_image(image_url)
+        except Exception as exc:
+            logger.warning("gemini_text could not read image %s: %s", image_url, exc)
+            return None
+        parts.append(
+            {
+                "inline_data": {
+                    "mime_type": content_type.split(";")[0],
+                    "data": base64.b64encode(image_data).decode(),
+                }
+            }
+        )
 
-    item_description = " ".join(parts) if parts else "cloth item"
+    payload = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+        },
+    }
+    headers = {"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"}
+    api_url = GEMINI_API_URL.replace("{model}", GEMINI_MODEL)
 
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            resp = call_with_retry(
+                lambda: client.post(api_url, json=payload, headers=headers)
+            )
+        resp.raise_for_status()
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as exc:
+        logger.warning("Gemini call failed: %s", exc, exc_info=True)
+        return None
+
+
+def gemini_json(
+    prompt: str,
+    max_tokens: int = 500,
+    temperature: float = 0.2,
+    image_url: str | None = None,
+) -> dict | None:
+    """``gemini_text`` + markdown-fence-tolerant JSON parse. None on failure."""
+    raw = gemini_text(prompt, max_tokens, temperature, image_url)
+    if raw is None:
+        return None
+    parsed = _parse_advice_response(raw)
+    if parsed is None:
+        logger.warning("Gemini returned non-JSON: %s", raw[:200])
+    return parsed
+
+
+# ── Outfit explanations (Feature 4.2) ──
+
+# Explanations are deterministic per item set, so cache them and keep the
+# Gemini free tier out of the loop when a card is expanded repeatedly.
+_explain_cache: TTLCache = TTLCache(maxsize=200, ttl=1800)
+
+EXPLAIN_PROMPT = """You are a professional stylist. These items are being worn
+together:
+
+{item_descriptions}
+
+The blended compatibility score is {score}, with sub-scores: {breakdown}.
+
+Explain in 2-3 conversational sentences why this outfit works (or doesn't
+work). Be specific — mention the colors, textures, and silhouettes named
+above. Never invent an item or a detail that isn't listed. Return plain text,
+no markdown, no JSON."""
+
+
+def describe_item(item: ClothingItem) -> str:
+    """Short human phrase for an item, e.g. 'white slim-fit cotton top'."""
+    parts = [
+        p
+        for p in (
+            item.color,
+            item.pattern if item.pattern and item.pattern != "solid" else None,
+            f"{item.fit_type}-fit" if item.fit_type else None,
+            item.fabric_type,
+            item.subcategory or item.category,
+        )
+        if p
+    ]
+    return " ".join(parts) or "clothing item"
+
+
+def explain_outfit(items: list[ClothingItem], db: Session) -> str:
+    """Natural-language stylist explanation for why a set of items works.
+
+    Falls back to the pairing engine's own reason string when Gemini is
+    unavailable, so the endpoint always returns something useful.
+    """
+    from app.pairing_engine import score_outfit
+
+    if not items:
+        return ""
+
+    key = tuple(sorted(i.id for i in items))
+    cached = _explain_cache.get(key)
+    if cached is not None:
+        return cached
+
+    user = items[0].user
+    score, reason, breakdown = score_outfit(
+        items, getattr(user, "body_type", None) if user else None
+    )
+
+    explanation = gemini_text(
+        EXPLAIN_PROMPT.format(
+            item_descriptions="\n".join(f"- {describe_item(i)}" for i in items),
+            score=round(score, 2),
+            breakdown=", ".join(f"{k} {v}" for k, v in sorted(breakdown.items())),
+        ),
+        max_tokens=250,
+        temperature=0.5,
+    )
+
+    text = (explanation or "").strip() or reason
+    _explain_cache[key] = text
+    return text
+
+
+def get_style_advice(item: ClothingItem) -> StyleAdvice:
     prompt = PROMPT_TEMPLATE.format(
-        item_description=item_description,
+        item_description=describe_item(item),
         target_gender=item.target_gender or "person",
         season=item.season or "any",
         occasion=item.occasion_tag or "any",
     )
 
-    api_url = GEMINI_API_URL.replace("{model}", GEMINI_MODEL)
-
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 500,
-        },
-    }
-
-    headers = {
-        "x-goog-api-key": GEMINI_API_KEY,
-        "Content-Type": "application/json",
-    }
-
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = call_with_retry(lambda: client.post(api_url, json=payload, headers=headers))
-        resp.raise_for_status()
-        data = resp.json()
-        raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
-
-        parsed = _parse_advice_response(raw_text)
-        if parsed is None:
-            logger.warning("Gemini returned invalid JSON for style advice: %s", raw_text[:200])
-            return StyleAdvice(shoes=[], accessories=[], layering=[], reasoning="")
-
-        return StyleAdvice(
-            shoes=parsed.get("shoes", []),
-            accessories=parsed.get("accessories", []),
-            layering=parsed.get("layering", []),
-            reasoning=parsed.get("reasoning", ""),
-        )
-
-    except Exception as exc:
-        logger.warning("get_style_advice failed for item=%s: %s", item.id, exc, exc_info=True)
+    parsed = gemini_json(prompt, max_tokens=500, temperature=0.4)
+    if parsed is None:
         return StyleAdvice(shoes=[], accessories=[], layering=[], reasoning="")
+
+    return StyleAdvice(
+        shoes=parsed.get("shoes", []),
+        accessories=parsed.get("accessories", []),
+        layering=parsed.get("layering", []),
+        reasoning=parsed.get("reasoning", ""),
+    )

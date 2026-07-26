@@ -20,11 +20,13 @@ import {
   calendarApi,
   outfitApi,
   OutfitSuggestion,
+  RepeatWarning,
+  wearApi,
 } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
 import { resolveImageUrl } from "../../lib/constants";
 import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../../theme/tokens";
-import { Star } from "../../lib/icons";
+import { Repeat, Star } from "../../lib/icons";
 
 const OCCASIONS = [
   "casual",
@@ -102,6 +104,7 @@ export default function CalendarScreen() {
   const [suggestions, setSuggestions] = useState<OutfitSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [lockingIndex, setLockingIndex] = useState<number | null>(null);
+  const [repeatWarnings, setRepeatWarnings] = useState<Record<number, RepeatWarning>>({});
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
 
@@ -166,10 +169,29 @@ export default function CalendarScreen() {
         limit: 5,
       });
       setSuggestions(data);
+      loadRepeatWarnings(data);
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally {
       setLoadingSuggestions(false);
+    }
+  };
+
+  // Wear-frequency warnings (4.8) — checked per suggestion so the banner is
+  // already on screen before the user locks, not after.
+  const loadRepeatWarnings = async (sugs: OutfitSuggestion[]) => {
+    const ids = [...new Set(sugs.flatMap((s) => s.items.map((i) => i.id)))];
+    if (ids.length === 0) {
+      setRepeatWarnings({});
+      return;
+    }
+    try {
+      const { warnings } = await wearApi.repeatCheck(ids);
+      setRepeatWarnings(
+        Object.fromEntries(warnings.map((w) => [w.item_id, w])),
+      );
+    } catch {
+      setRepeatWarnings({});
     }
   };
 
@@ -223,7 +245,7 @@ export default function CalendarScreen() {
 
   const handleOpenTryOnViewer = () => {
     if (activeEntry?.try_on_result_image_url) {
-      setViewerImage(resolveImageUrl(activeEntry.try_on_result_image_url, BASE_URL) ?? undefined);
+      setViewerImage(resolveImageUrl(activeEntry.try_on_result_image_url, BASE_URL) ?? null);
       setViewerVisible(true);
     }
   };
@@ -419,6 +441,25 @@ export default function CalendarScreen() {
                           </Text>
                         </View>
                       </View>
+
+                      {sug.items
+                        .map((it) => repeatWarnings[it.id])
+                        .filter(Boolean)
+                        .map((warning) => (
+                          <View key={warning!.item_id} style={styles.repeatBanner}>
+                            <Repeat size={14} color={colors.warning} strokeWidth={1.5} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.repeatText}>{warning!.message}</Text>
+                              {warning!.alternative && (
+                                <Text style={styles.repeatAlt}>
+                                  Try swapping in{" "}
+                                  {warning!.alternative.name || warning!.alternative.category}
+                                  {" "}instead.
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+                        ))}
                       <TouchableOpacity
                         style={[
                           styles.lockBtn,
@@ -566,6 +607,17 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   suggestionCardLocked: { borderColor: colors.success, backgroundColor: "#f0faf4" },
+  repeatBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    backgroundColor: colors.warning + "1a",
+    borderRadius: br.sm,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  repeatText: { fontSize: fontSize.xs, color: colors.text.primary, lineHeight: 16 },
+  repeatAlt: { fontSize: fontSize.xs, color: colors.text.secondary, marginTop: 2 },
   suggestionThumbs: { flexDirection: "row", padding: spacing.sm, gap: spacing.xs + 2 },
   suggestionReason: {
     fontSize: fontSize.xs,
