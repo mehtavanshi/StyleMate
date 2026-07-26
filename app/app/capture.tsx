@@ -27,7 +27,7 @@ import { spacing, fontSize, fontWeight, borderRadius as br, colors } from "../th
 type CaptureStep = "camera" | "preview" | "editing" | "validating" | "uploading" | "error";
 
 export default function CaptureScreen() {
-  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const { mode, returnTo } = useLocalSearchParams<{ mode?: string; returnTo?: string }>();
   const isBodyPhoto = mode !== "item";
 
   const navigation = useNavigation();
@@ -128,7 +128,7 @@ export default function CaptureScreen() {
 
       if (isBodyPhoto) {
         await consentApi.setPhoto(DEMO_USER_ID, image_url);
-        router.replace("/(tabs)");
+        router.replace((returnTo as any) || "/(tabs)");
       } else {
         router.replace(
           `/(tabs)/add-item?image_url=${encodeURIComponent(image_url)}`,

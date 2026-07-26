@@ -234,7 +234,6 @@ function ProductCard({ item }: { item: ShoppingProduct }) {
 }
 
 export default function OutfitSuggestionsScreen() {
-  const [suggestions, setSuggestions] = useState<OutfitSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOccasion, setSelectedOccasion] = useState<string | null>(null);
   const [selectedTargetGender, setSelectedTargetGender] = useState<string | null>(null);
@@ -251,6 +250,9 @@ export default function OutfitSuggestionsScreen() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [explanations, setExplanations] = useState<Record<string, string>>({});
   const [tryOnStates, setTryOnStates] = useState<Record<string, TryOnCardState>>({});
+  const [cachedOutfits, setCachedOutfits] = useState<OutfitSuggestion[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const messageRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const appStateRef = useRef(AppState.currentState);
@@ -285,8 +287,11 @@ export default function OutfitSuggestionsScreen() {
       const data = await outfitApi.suggest({
         occasion_tag: selectedOccasion || undefined,
         target_gender: selectedTargetGender || undefined,
+        limit: 5,
+        offset: 0,
       });
-      setSuggestions(data);
+      setCachedOutfits(data.outfits);
+      setTotalCount(data.total);
       setSmartResult(null);
     } catch (e: any) {
       Alert.alert("Error", e.message);
@@ -294,6 +299,24 @@ export default function OutfitSuggestionsScreen() {
       setLoading(false);
     }
   }, [selectedOccasion, selectedTargetGender]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || cachedOutfits.length >= totalCount) return;
+    setLoadingMore(true);
+    try {
+      const data = await outfitApi.suggest({
+        occasion_tag: selectedOccasion || undefined,
+        target_gender: selectedTargetGender || undefined,
+        limit: 5,
+        offset: cachedOutfits.length,
+      });
+      setCachedOutfits((prev) => [...prev, ...data.outfits]);
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [selectedOccasion, selectedTargetGender, cachedOutfits.length, totalCount, loadingMore]);
 
   // ── Smart outfit generator (4.3) ──
   const runSmartQuery = async () => {
@@ -303,7 +326,8 @@ export default function OutfitSuggestionsScreen() {
     try {
       const result = await outfitApi.smartSuggest(query);
       setSmartResult(result);
-      setSuggestions(result.outfits);
+      setCachedOutfits(result.outfits);
+      setTotalCount(result.outfits.length);
       setExplanations({});
       if (result.outfits.length === 0) showToast("No outfits matched that request");
     } catch (e: any) {
@@ -842,7 +866,7 @@ export default function OutfitSuggestionsScreen() {
           <ActivityIndicator size="large" color="#333" />
           <Text style={styles.loadingText}>Generating outfits...</Text>
         </View>
-      ) : suggestions.length === 0 ? (
+      ) : cachedOutfits.length === 0 ? (
         <View style={styles.center}>
           <Text style={styles.emptyTitle}>No outfit suggestions</Text>
           <Text style={styles.emptyText}>
@@ -853,9 +877,22 @@ export default function OutfitSuggestionsScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.list, { paddingBottom }]}>
-          {suggestions.map((item, index) => (
+          {cachedOutfits.map((item, index) => (
             <View key={`suggestion-${index}`}>{renderCard({ item, index })}</View>
           ))}
+          {cachedOutfits.length < totalCount && (
+            <TouchableOpacity
+              style={styles.loadMoreBtn}
+              onPress={loadMore}
+              disabled={loadingMore}
+            >
+              {loadingMore ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.loadMoreBtnText}>Load More Outfits</Text>
+              )}
+            </TouchableOpacity>
+          )}
           <CompleteTheLook />
         </ScrollView>
       )}
@@ -974,6 +1011,20 @@ const styles = StyleSheet.create({
 
   // List
   list: { padding: spacing.md },
+
+  // Load More button
+  loadMoreBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: br.md,
+    paddingVertical: spacing.sm + 2,
+    alignItems: "center",
+    marginTop: spacing.sm,
+  },
+  loadMoreBtnText: {
+    color: colors.text.white,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+  },
 
   // Card
   card: {

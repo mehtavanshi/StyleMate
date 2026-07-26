@@ -1092,7 +1092,8 @@ def suggest_outfits(
     target_gender: str | None = None,
     limit: int = 5,
     items: list[ClothingItem] | None = None,
-) -> list[OutfitSuggestion]:
+    offset: int = 0,
+) -> dict:
     """Load user's items and return top outfit combinations.
 
     Pass ``items`` to score a pre-filtered subset (e.g. weather-appropriate
@@ -1104,6 +1105,9 @@ def suggest_outfits(
     users with fewer than 10 feedback entries and ramps linearly up to a cap of
     30% as more feedback accumulates. If the model file is missing or fails to
     load, scoring falls back entirely to the rule-based result.
+
+    Returns a dict with ``items`` (list of OutfitSuggestion) and ``total``
+    (total number of valid deduplicated combinations before slicing).
     """
     from app.models import OutfitFeedback, User
 
@@ -1219,7 +1223,7 @@ def suggest_outfits(
     seen = set()
     seen_colors: list[str] = []
     results: list[OutfitSuggestion] = []
-    bucket_size = max(limit * 2, 10)
+    bucket_size = max(offset + limit, limit * 2, 10)
 
     for score, reason, bd, combo in candidates[:bucket_size]:
         key = tuple(sorted(i.id for i in combo))
@@ -1257,7 +1261,7 @@ def suggest_outfits(
                 breakdown=bd,
             )
         )
-        if len(results) >= limit:
-            break
 
-    return results
+    total = len(results)
+    sliced = results[offset : offset + limit]
+    return {"items": sliced, "total": total}

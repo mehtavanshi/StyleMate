@@ -233,13 +233,14 @@ export interface CapsuleResponse {
 }
 
 export const outfitApi = {
-  suggest: (params?: { occasion_tag?: string; target_gender?: string; limit?: number }) => {
+  suggest: (params?: { occasion_tag?: string; target_gender?: string; limit?: number; offset?: number }) => {
     const query = new URLSearchParams();
     query.set("user_id", String(DEMO_USER_ID));
     if (params?.occasion_tag) query.set("occasion_tag", params.occasion_tag);
     if (params?.target_gender) query.set("target_gender", params.target_gender);
     if (params?.limit) query.set("limit", String(params.limit));
-    return apiFetch<OutfitSuggestion[]>(`/outfit-suggestions?${query.toString()}`);
+    if (params?.offset) query.set("offset", String(params.offset));
+    return apiFetch<{ outfits: OutfitSuggestion[]; total: number }>(`/outfit-suggestions?${query.toString()}`);
   },
 
   smartSuggest: (query: string, limit = 5) =>

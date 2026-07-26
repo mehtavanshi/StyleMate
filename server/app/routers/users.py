@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 from app.database import get_db
-from app.models import TryOnResult, User
+from app.models import CalendarEntry, TryOnResult, User
 from app.schemas import BodyTypeIn, ConsentIn, ConsentResponse, PhotoUrlIn, UserCreate, UserResponse
 from app.storage import get_storage_provider
 
@@ -161,6 +161,10 @@ def delete_user_photo(
     provider = get_storage_provider()
     provider.delete_file(user.photo_url)
 
+    db.query(CalendarEntry).filter(
+        CalendarEntry.user_id == user_id,
+        CalendarEntry.try_on_result_id.isnot(None),
+    ).update({CalendarEntry.try_on_result_id: None})
     db.query(TryOnResult).filter(TryOnResult.user_id == user_id).delete()
     user.photo_url = None
     user.photo_storage_key = None

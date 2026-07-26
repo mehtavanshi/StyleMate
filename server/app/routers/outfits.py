@@ -36,16 +36,25 @@ class OutfitSuggestionResponse(BaseModel):
     breakdown: dict[str, float] = {}
 
 
-@router.get("/outfit-suggestions", response_model=list[OutfitSuggestionResponse])
+class OutfitSuggestionsResponse(BaseModel):
+    outfits: list[OutfitSuggestionResponse]
+    total: int
+
+
+@router.get("/outfit-suggestions", response_model=OutfitSuggestionsResponse)
 def get_outfit_suggestions(
     user_id: int = 1,
     occasion_tag: str | None = None,
     target_gender: str | None = None,
     limit: int = 5,
+    offset: int = 0,
     db: Session = Depends(get_db),
 ):
-    results = suggest_outfits(db, user_id, occasion_tag, target_gender, limit)
-    return [_to_response(r) for r in results]
+    result = suggest_outfits(db, user_id, occasion_tag, target_gender, limit, offset=offset)
+    return OutfitSuggestionsResponse(
+        outfits=[_to_response(r) for r in result["items"]],
+        total=result["total"],
+    )
 
 
 def _to_response(r: OutfitSuggestion) -> OutfitSuggestionResponse:
@@ -94,7 +103,7 @@ def smart_outfit(payload: SmartOutfitIn, db: Session = Depends(get_db)):
     else:
         confidence = "low"
 
-    results = suggest_outfits(
+    result = suggest_outfits(
         db,
         payload.user_id,
         occasion_tag=params.get("occasion_tag"),
@@ -104,15 +113,15 @@ def smart_outfit(payload: SmartOutfitIn, db: Session = Depends(get_db)):
 
     # Nothing matched the parsed occasion — better to show the user's best
     # general outfits than an empty screen, so retry unfiltered.
-    if not results and params.get("occasion_tag"):
-        results = suggest_outfits(db, payload.user_id, limit=payload.limit)
+    if not result["items"] and params.get("occasion_tag"):
+        result = suggest_outfits(db, payload.user_id, limit=payload.limit)
         confidence = "low"
 
     return SmartOutfitResponse(
         query=payload.query,
         params=params,
         confidence=confidence,
-        outfits=[_to_response(r) for r in results],
+        outfits=[_to_response(r) for r in result["items"]],
     )
 
 
@@ -141,23 +150,23 @@ def weather_outfit(
     items = db.query(ClothingItem).filter(ClothingItem.user_id == user_id).all()
 
     if weather is None:
-        results = suggest_outfits(db, user_id, limit=1)
+        result = suggest_outfits(db, user_id, limit=1)
         return WeatherOutfitResponse(
             weather=None,
             guidance=None,
-            outfit=_to_response(results[0]) if results else None,
+            outfit=_to_response(result["items"][0]) if result["items"] else None,
             message="Weather unavailable — set WEATHER_API_KEY for temperature-aware picks.",
         )
 
     filtered = filter_items_by_weather(items, weather["temp_c"])
-    results = suggest_outfits(db, user_id, limit=1, items=filtered)
+    result = suggest_outfits(db, user_id, limit=1, items=filtered)
     guidance = rule_for_temp(weather["temp_c"])
 
     return WeatherOutfitResponse(
         weather=weather,
         guidance=guidance,
-        outfit=_to_response(results[0]) if results else None,
-        message=None if results else "No weather-appropriate outfit in your wardrobe yet.",
+        outfit=_to_response(result["items"][0]) if result["items"] else None,
+        message=None if result["items"] else "No weather-appropriate outfit in your wardrobe yet.",
     )
 
 

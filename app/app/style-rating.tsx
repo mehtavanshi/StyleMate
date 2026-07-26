@@ -89,7 +89,7 @@ export default function StyleRatingScreen() {
             </Text>
             <TouchableOpacity
               style={styles.primaryBtn}
-              onPress={() => router.push(consent?.photo_consent ? "/capture" : "/consent")}
+              onPress={() => router.push(consent?.photo_consent ? "/capture?returnTo=/style-rating" : "/consent?returnTo=/style-rating")}
             >
               <Text style={styles.primaryBtnText}>
                 {consent?.photo_consent ? "Take my photo" : "Give consent"}

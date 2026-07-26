@@ -10,11 +10,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { borderRadius as br, colors, fontSize, fontWeight, shadow, spacing } from "../theme/tokens";
-import { router, useNavigation } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 
 import { consentApi, DEMO_USER_ID } from "../lib/api";
 
 export default function ConsentScreen() {
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const navigation = useNavigation();
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -28,14 +29,14 @@ export default function ConsentScreen() {
     try {
       const status = await consentApi.getStatus(DEMO_USER_ID);
       if (status.photo_consent) {
-        router.replace("/(tabs)");
+        router.replace((returnTo as any) || "/(tabs)");
       }
     } catch {
       // server unreachable — let user consent again
     } finally {
       setChecking(false);
     }
-  }, []);
+  }, [returnTo]);
 
   useEffect(() => {
     checkExisting();
@@ -46,7 +47,7 @@ export default function ConsentScreen() {
     setSubmitting(true);
     try {
       await consentApi.giveConsent(DEMO_USER_ID);
-      router.replace("/(tabs)");
+      router.replace((returnTo as any) || "/(tabs)");
     } catch (e: any) {
       // error handled silently; user can retry
     } finally {
