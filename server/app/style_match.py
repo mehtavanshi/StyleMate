@@ -929,11 +929,28 @@ def generate_style_match(item_id: int, db: Session) -> StyleMatchResult:
         )
     wardrobe_matches.sort(key=lambda x: x.match_percentage, reverse=True)
 
-    # 2) Generated suggestions per partner category (not owned), filtered
-    #    to MATCH_THRESHOLD+.
+    # 2) Fill each partner category with the user's OWN matching items first.
+    #    These sections used to show only invented catalogue entries ("Beige
+    #    Canvas Tote Bag"), which is useless when the point is "what that I
+    #    already own goes with this".
+    for match in wardrobe_matches:
+        # setdefault, not [cat]: _MATCHING_CATEGORIES pairs footwear and
+        # accessory with "dress", which has no bucket here — indexing it raised
+        # KeyError and 500'd style match for every footwear and accessory item.
+        # Every reader below already uses .get(), so an extra bucket is inert.
+        section_map.setdefault(_normalise(match.category), []).append(match)
+
+    # Generated suggestions stay separate: they drive the shopping section, and
+    # mixing them into section_map would produce "buy this" links for things
+    # already hanging in the wardrobe.
+    generated_map: dict[str, list[StyleMatchItem]] = {}
     for cat in partner_cats:
         generated = _generated_suggestions(selected, cat, owned_ids)
-        section_map[cat].extend(_apply_style_diversity(generated))
+        generated_map[cat] = _apply_style_diversity(generated)
+        # Only pad a section with invented items when the wardrobe has nothing
+        # to offer there — otherwise a real garment is always the better answer.
+        if not section_map.get(cat):
+            section_map.setdefault(cat, []).extend(generated_map[cat])
 
     # 3) Split into the response buckets.
     result = StyleMatchResult(
@@ -967,7 +984,9 @@ def generate_style_match(item_id: int, db: Session) -> StyleMatchResult:
     # 4) Shopping suggestions: one group per partner category's top
     #    (already threshold-qualified) pick.
     for cat in partner_cats:
-        picks = section_map.get(cat, [])
+        # Deliberately generated_map, not section_map: shopping links are for
+        # things to buy, and section_map now leads with items already owned.
+        picks = generated_map.get(cat, [])
         if not picks:
             continue
         top = picks[0]

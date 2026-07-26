@@ -118,4 +118,30 @@ class OutfitFeedback(Base):
     user = relationship("User")
 
 
+class ItemPairScore(Base):
+    """Cached score_pair() result for one pair of items.
+
+    Scoring a pair is cheap, but there are O(n^2) of them and every capsule or
+    outfit request rescored the lot. These rows are computed once per pair and
+    reused until one of the two items changes. Rows are stored with
+    item_a_id < item_b_id so a pair has exactly one representation.
+
+    Invalidated by app.pair_cache.invalidate_item on item create/update/delete,
+    and per-user when body_type changes (it feeds score_pair).
+    """
+
+    __tablename__ = "item_pair_scores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    item_a_id = Column(Integer, ForeignKey("clothing_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_b_id = Column(Integer, ForeignKey("clothing_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    score = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("item_a_id", "item_b_id", name="uq_item_pair"),
+    )
+
+
 

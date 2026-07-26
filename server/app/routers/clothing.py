@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.matching_service import complete_outfit, suggest_matches
 from app.models import ClothingItem
+from app.pair_cache import invalidate_item
 from app.schemas import ClothingItemCreate, ClothingItemUpdate, ClothingItemResponse
 from app.style_embeddings import compute_and_store_embedding
 
@@ -46,6 +47,10 @@ def create_item(item: ClothingItemCreate, db: Session = Depends(get_db)):
         session = SessionLocal()
         try:
             compute_and_store_embedding(db_item.id, session)
+            # The embedding feeds score_pair, so any pair scored before it
+            # landed used a neutral 0.5 similarity and is now stale.
+            invalidate_item(session, db_item.id)
+            session.commit()
         finally:
             session.close()
 
@@ -69,6 +74,9 @@ def update_item(item_id: int, updates: ClothingItemUpdate, db: Session = Depends
         raise HTTPException(status_code=404, detail="Item not found")
     for key, value in updates.model_dump(exclude_unset=True).items():
         setattr(item, key, value)
+    # Colour/category/season edits change how this item scores against
+    # everything else, so its cached pairs have to go.
+    invalidate_item(db, item_id)
     db.commit()
     db.refresh(item)
     return item
@@ -79,6 +87,7 @@ def delete_item(item_id: int, db: Session = Depends(get_db)):
     item = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    invalidate_item(db, item_id)
     db.delete(item)
     db.commit()
     return {"detail": "Item deleted"}

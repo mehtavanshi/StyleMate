@@ -583,17 +583,35 @@ def _body_type_style_score(
 
 
 def _load_embedding(item: ClothingItem) -> list[float] | None:
-    """Load the FashionCLIP embedding from an item's embedding_json field."""
+    """Load the FashionCLIP embedding from an item's embedding_json field.
+
+    Memoised on the instance: outfit scoring compares the same handful of items
+    hundreds of thousands of times, and re-parsing a 512-float JSON string on
+    every comparison was over half the runtime of suggest_outfits. Keyed on the
+    raw string's identity so a refreshed embedding reparses rather than serving
+    a stale vector.
+    """
     raw = getattr(item, "embedding_json", None)
     if not raw:
         return None
+
+    memo = getattr(item, "_embedding_memo", None)
+    if memo is not None and memo[0] is raw:
+        return memo[1]
+
+    vec = None
     try:
-        vec = json.loads(raw)
-        if isinstance(vec, list) and len(vec) > 0:
-            return vec
+        parsed = json.loads(raw)
+        if isinstance(parsed, list) and len(parsed) > 0:
+            vec = parsed
     except (json.JSONDecodeError, TypeError):
         pass
-    return None
+
+    try:
+        item._embedding_memo = (raw, vec)
+    except (AttributeError, TypeError):
+        pass  # not a mapped instance (e.g. a plain stub in tests)
+    return vec
 
 
 def _embedding_similarity(item1: ClothingItem, item2: ClothingItem) -> float:
@@ -704,6 +722,48 @@ def score_pair(
     Returns (score, reason, breakdown).
     Score is 0.0 when target_gender is incompatible.
     """
+    # Memoised per pair on the instance, same rationale as _load_embedding:
+    # suggest_outfits scores ~150k candidate outfits drawn from a wardrobe with
+    # only a couple of thousand distinct pairs, so the same pair is rescored
+    # hundreds of times. The memo lives on the ORM instance, so it lasts exactly
+    # as long as the request's session and cannot go stale across requests.
+    # Not a substitute for pair_cache: that survives restarts, this does not.
+    # Keyed on the *object*, not item.id: ids are not guaranteed distinct for
+    # unsaved or stub items (test doubles all share id 0), and an id-keyed memo
+    # silently serves one pair's score for a different pair. Object identity is
+    # always unique among live instances.
+    owner, other = (item1, item2) if id(item1) <= id(item2) else (item2, item1)
+    memo_key = (other, user_body_type)
+    try:
+        hash(memo_key)
+    except TypeError:
+        # Not every caller passes an ORM row. style_match scores against
+        # _HypotheticalItem, a dataclass with eq=True and therefore no __hash__.
+        # Those are one-shot objects with nothing to gain from memoising.
+        return _score_pair_uncached(item1, item2, user_body_type)
+
+    memo = getattr(owner, "_pair_memo", None)
+    if memo is not None:
+        hit = memo.get(memo_key)
+        if hit is not None:
+            return hit
+
+    result = _score_pair_uncached(item1, item2, user_body_type)
+
+    try:
+        if memo is None:
+            memo = {}
+            owner._pair_memo = memo
+        memo[memo_key] = result
+    except (AttributeError, TypeError):
+        pass  # slotted stand-in that rejects new attributes — skip memoising
+    return result
+
+
+def _score_pair_uncached(
+    item1: ClothingItem, item2: ClothingItem,
+    user_body_type: str | None = None,
+) -> tuple[float, str, dict[str, float]]:
     if not _gender_compatible(item1, item2):
         return 0.0, "target_gender mismatch", {}
 
@@ -993,8 +1053,6 @@ def build_capsule(
     combinatorial, and on wardrobe-sized inputs it lands within a couple of
     outfits of exhaustive search.
     """
-    from app.models import User
-
     if db is None:
         raise ValueError("build_capsule requires a db session")
 
@@ -1003,20 +1061,14 @@ def build_capsule(
         query = query.filter(ClothingItem.occasion_tag.contains(occasion_filter))
     items = query.all()
 
-    user = db.query(User).filter(User.id == user_id).first() if items else None
-    body_type = getattr(user, "body_type", None) if user else None
+    # Scored once per pair and persisted; later calls only score pairs involving
+    # items added since. Imported here because pair_cache imports this module.
+    from app.pair_cache import ensure_pair_scores
 
-    # Score every pairable combination once, up front.
-    good: set[frozenset[int]] = set()
-    pair_scores: dict[frozenset[int], float] = {}
-    for idx, a in enumerate(items):
-        for b in items[idx + 1:]:
-            if not _capsule_pairable(a.category, b.category):
-                continue
-            score, _, _ = score_pair(a, b, body_type)
-            pair_scores[frozenset((a.id, b.id))] = score
-            if score >= CAPSULE_PAIR_THRESHOLD:
-                good.add(frozenset((a.id, b.id)))
+    pair_scores = ensure_pair_scores(db, user_id, items)
+    good: set[frozenset[int]] = {
+        k for k, score in pair_scores.items() if score >= CAPSULE_PAIR_THRESHOLD
+    }
 
     locked = [i for i in items if i.id in set(locked_item_ids or [])]
     selected: list[ClothingItem] = list(locked)

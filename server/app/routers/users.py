@@ -72,6 +72,11 @@ def set_body_type(
     user = _get_user_or_404(user_id, db)
     user.body_type = body_type_in.body_type
     _touch_activity(user, db)
+    # score_pair weights style tags by body type, so every cached pair for this
+    # user is now priced against the wrong body type.
+    from app.pair_cache import invalidate_user
+
+    invalidate_user(db, user_id)
     db.commit()
     db.refresh(user)
     return user
