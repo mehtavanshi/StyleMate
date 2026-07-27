@@ -168,8 +168,8 @@ export default function CalendarScreen() {
         occasion_tag: occasion || undefined,
         limit: 5,
       });
-      setSuggestions(data);
-      loadRepeatWarnings(data);
+      setSuggestions(data.outfits);
+      loadRepeatWarnings(data.outfits);
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally {

@@ -9,9 +9,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useNavigation } from "expo-router";
 
-import { ArrowLeft, Sparkles, Star } from "../lib/icons";
+import { Sparkles, Star } from "../lib/icons";
 import {
   consentApi,
   ConsentStatus,
@@ -21,6 +21,8 @@ import {
 } from "../lib/api";
 import { BASE_URL } from "../config/api";
 import { resolvePhotoUrl } from "../lib/constants";
+import useHardwareBack from "../lib/useHardwareBack";
+import BackButton from "../components/BackButton";
 import {
   borderRadius as br,
   colors,
@@ -45,10 +47,22 @@ function scoreColor(score: number): string {
 }
 
 export default function StyleRatingScreen() {
+  const navigation = useNavigation();
   const [consent, setConsent] = useState<ConsentStatus | null>(null);
   const [rating, setRating] = useState<FashionRating | null>(null);
   const [loading, setLoading] = useState(false);
   const [openSuggestion, setOpenSuggestion] = useState<number | null>(null);
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      router.replace("/(tabs)");
+    }
+    return true;
+  }, [navigation]);
+
+  useHardwareBack(handleBack);
 
   useEffect(() => {
     consentApi.getStatus(DEMO_USER_ID).then(setConsent).catch(() => setConsent(null));
@@ -71,10 +85,7 @@ export default function StyleRatingScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} accessibilityLabel="Go back">
-          <ArrowLeft size={22} color={colors.accent} strokeWidth={1.5} />
-        </TouchableOpacity>
-        <Text style={styles.title} accessibilityRole="header">Rate My Style</Text>
+        <BackButton title="Rate My Style" />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>

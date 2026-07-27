@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +19,8 @@ import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { consentApi, DEMO_USER_ID, uploadApi } from "../lib/api";
 import { MAX_LONG_EDGE_PX, JPEG_QUALITY } from "../lib/constants";
 import { validateImage } from "../lib/imageValidation";
+import useHardwareBack from "../lib/useHardwareBack";
+import BackButton from "../components/BackButton";
 import ImageEditor from "../components/ImageEditor";
 import PhotoGuideExamples from "../components/PhotoGuideExamples";
 import SilhouetteOverlay from "../components/SilhouetteOverlay";
@@ -50,12 +52,23 @@ export default function CaptureScreen() {
     setStep("preview");
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     navigation.setOptions({ title: "Take Your Photo", headerShown: true });
     ImagePicker.requestMediaLibraryPermissionsAsync().then((r) =>
       setGalleryPermission(r.granted),
     );
   }, [navigation]);
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      router.replace("/(tabs)");
+    }
+    return true;
+  }, [navigation]);
+
+  useHardwareBack(handleBack);
 
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current) return;
@@ -158,6 +171,7 @@ export default function CaptureScreen() {
           <View style={styles.centered}>
             <ActivityIndicator size="large" color="#333" />
           </View>
+          <BackButton />
         </SafeAreaView>
       );
     }
@@ -165,6 +179,7 @@ export default function CaptureScreen() {
     if (!cameraPermission.granted) {
       return (
         <SafeAreaView style={{ flex: 1 }}>
+          <BackButton />
           <View style={styles.centered}>
             <Text style={styles.permissionText}>Camera access is required to take a photo.</Text>
             <TouchableOpacity
@@ -194,6 +209,9 @@ export default function CaptureScreen() {
 
     return (
       <View style={styles.cameraContainer}>
+        <View style={styles.cameraBackButton}>
+          <BackButton light />
+        </View>
         <View style={styles.cameraWrap}>
           <CameraView ref={cameraRef} style={styles.camera} facing={isBodyPhoto ? "front" : "back"} />
           {isBodyPhoto && <SilhouetteOverlay />}
@@ -220,6 +238,7 @@ export default function CaptureScreen() {
   if (step === "preview" && capturedUri) {
     return (
       <SafeAreaView style={{ flex: 1 }}>
+        <BackButton />
         <View style={styles.container}>
           <Image source={{ uri: capturedUri }} style={styles.previewImage} />
           <View style={styles.previewInfo}>
@@ -266,6 +285,7 @@ export default function CaptureScreen() {
   if (step === "validating") {
     return (
       <SafeAreaView style={{ flex: 1 }}>
+        <BackButton />
         <View style={styles.centered} accessibilityRole="progressbar" accessibilityLabel="Checking photo quality">
           <ActivityIndicator size="large" color="#333" />
           <Text style={styles.loadingText}>Checking photo quality...</Text>
@@ -278,6 +298,7 @@ export default function CaptureScreen() {
   if (step === "uploading") {
     return (
       <SafeAreaView style={{ flex: 1 }}>
+        <BackButton />
         <View style={styles.centered} accessibilityRole="progressbar" accessibilityLabel={`Uploading photo: ${Math.round(uploadProgress * 100)}%`}>
           <ActivityIndicator size="large" color="#333" />
           <Text style={styles.loadingText}>Uploading photo...</Text>
@@ -295,6 +316,7 @@ export default function CaptureScreen() {
   // Render error state
   return (
     <SafeAreaView style={{ flex: 1 }}>
+    <BackButton />
     <View style={styles.centered}>
       {capturedUri && (
         <Image source={{ uri: capturedUri }} style={styles.errorPreview} />
@@ -334,6 +356,12 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
   },
   cameraContainer: { flex: 1, backgroundColor: "#000" },
+  cameraBackButton: {
+    position: "absolute",
+    top: spacing.xl,
+    left: spacing.lg,
+    zIndex: 10,
+  },
   cameraWrap: { flex: 1, position: "relative" },
   camera: { flex: 1 },
   cameraActions: {

@@ -13,12 +13,14 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 
 import { calendarApi, CalendarEntry, tryOnApi, TryOnJob } from "../lib/api";
 import { resolvePhotoUrl } from "../lib/constants";
 import { BASE_URL } from "../config/api";
+import useHardwareBack from "../lib/useHardwareBack";
+import BackButton from "../components/BackButton";
 import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../theme/tokens";
 
 const TRYON_LOADING_MESSAGES = [
@@ -31,6 +33,7 @@ const TRYON_LOADING_MESSAGES = [
 
 export default function TryOnScreen() {
   const { job_id } = useLocalSearchParams<{ job_id?: string }>();
+  const navigation = useNavigation();
   const [job, setJob] = useState<TryOnJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,6 +49,17 @@ export default function TryOnScreen() {
   const [savedToCalendar, setSavedToCalendar] = useState(false);
 
   const insets = useSafeAreaInsets();
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      router.replace("/(tabs)");
+    }
+    return true;
+  }, [navigation]);
+
+  useHardwareBack(handleBack);
 
   const messageInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -234,6 +248,7 @@ export default function TryOnScreen() {
   if (loading) {
     return (
       <SafeAreaView style={{ flex: 1 }}>
+        <BackButton />
         <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Generating your virtual try-on">
           <ActivityIndicator size="large" color="#333" />
           <Text style={styles.loadingText}>{TRYON_LOADING_MESSAGES[messageIndex]}</Text>
@@ -245,6 +260,7 @@ export default function TryOnScreen() {
   if (!job) {
     return (
       <SafeAreaView style={{ flex: 1 }}>
+        <BackButton />
         <View style={styles.center} accessibilityLabel="No try-on result found">
           <Text style={styles.errorText}>No try-on result found.</Text>
           <TouchableOpacity style={styles.primaryBtn} onPress={() => router.back()} accessibilityLabel="Go back to outfits">
@@ -262,6 +278,7 @@ export default function TryOnScreen() {
       : "midnight";
     return (
       <SafeAreaView style={{ flex: 1 }}>
+        <BackButton />
         <View style={styles.center} accessibilityLabel="Daily try-on limit reached">
           <Text style={styles.errorTitle}>Daily Limit Reached</Text>
           <Text style={styles.errorText}>
@@ -279,6 +296,7 @@ export default function TryOnScreen() {
   if (job.error_type === "bad_photo") {
     return (
       <SafeAreaView style={{ flex: 1 }}>
+        <BackButton />
         <View style={styles.center} accessibilityLabel="Photo could not be processed">
           <Text style={styles.errorTitle}>Photo Not Usable</Text>
           <Text style={styles.errorText}>
@@ -304,6 +322,7 @@ export default function TryOnScreen() {
   if (job.status === "failed") {
     return (
       <SafeAreaView style={{ flex: 1 }}>
+        <BackButton />
         <View style={styles.center} accessibilityLabel="Try-on failed">
           <Text style={styles.errorTitle}>Something Went Wrong</Text>
           <Text style={styles.errorText}>
@@ -328,6 +347,7 @@ export default function TryOnScreen() {
   return (
     <SafeAreaView style={[styles.resultContainer, { paddingTop: insets.top }]} accessibilityLabel="Virtual try-on result">
       <View style={styles.resultHeader}>
+        <BackButton />
         <Text style={styles.title} accessibilityRole="header">Virtual Try-On</Text>
         <Text style={styles.subtitle}>Here&apos;s how it looks on you!</Text>
       </View>

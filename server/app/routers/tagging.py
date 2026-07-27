@@ -70,6 +70,13 @@ CANDIDATE_LABELS = {
     "sleeve_length": ["sleeveless", "short", "three_quarter", "long", "not_applicable"],
 }
 
+# Override raw subcategory labels with more descriptive text for FashionCLIP
+# zero-shot prompts, so ambiguous labels (e.g. "palazzo" = trouser vs suit
+# co-ord) are distinguished without changing the stored internal key.
+_SUBCATEGORY_DISPLAY_NAMES: dict[str, str] = {
+    "palazzo": "palazzo trousers (wide-leg bottom)",
+}
+
 STYLE_TAG_CANDIDATES: list[str] = [
     "belted", "wrap_style", "structured", "flowy", "cropped",
     "high_waisted", "fitted", "a_line", "v_neck", "empire_waist",
@@ -312,7 +319,10 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
 
             if group:
                 labels = get_group_labels(category, group)
-                sub_label, sub_conf = zero_shot_classify(image_url, labels)
+                display_labels = [_SUBCATEGORY_DISPLAY_NAMES.get(l, l) for l in labels]
+                sub_label, sub_conf = zero_shot_classify(image_url, display_labels)
+                reverse_map = {v: k for k, v in _SUBCATEGORY_DISPLAY_NAMES.items()}
+                sub_label = reverse_map.get(sub_label, sub_label)
                 confidence["subcategory"] = sub_conf
                 if sub_conf < CONFIDENCE_THRESHOLD:
                     tags["subcategory"] = None

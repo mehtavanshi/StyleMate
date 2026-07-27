@@ -118,6 +118,33 @@ class OutfitFeedback(Base):
     user = relationship("User")
 
 
+class CachedOutfit(Base):
+    """Pre-computed outfit suggestion, deduplicated by anchor pieces.
+
+    The ``anchor_key`` is a stable string derived from the ``ANCHOR_ROLES``
+    items in the outfit (e.g. ``"bottom:12|top:45"``).  The unique constraint
+    on ``(user_id, anchor_key)`` guarantees at most one cached outfit per
+    unique top+bottom(+dress) combination per user — swapping only footwear
+    or accessories cannot create a separate row.
+    """
+
+    __tablename__ = "cached_outfits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    anchor_key = Column(String, nullable=False)
+    items_json = Column(Text, nullable=False)
+    score = Column(Float, nullable=False)
+    reason = Column(String, nullable=True)
+    breakdown_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "anchor_key", name="uq_cached_outfit_user_anchor"),
+    )
+
+
 class ItemPairScore(Base):
     """Cached score_pair() result for one pair of items.
 

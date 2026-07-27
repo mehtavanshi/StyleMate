@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -11,12 +11,14 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useNavigation } from "expo-router";
 
-import { ArrowLeft, Check, Lightbulb, Luggage, ShoppingBag } from "../lib/icons";
+import { Check, Lightbulb, Luggage, ShoppingBag } from "../lib/icons";
 import { packingApi, PackingList } from "../lib/api";
 import { BASE_URL } from "../config/api";
 import { resolvePhotoUrl } from "../lib/constants";
+import useHardwareBack from "../lib/useHardwareBack";
+import BackButton from "../components/BackButton";
 import {
   borderRadius as br,
   colors,
@@ -30,6 +32,7 @@ const PURPOSES = ["leisure", "business", "beach", "wedding", "adventure"];
 const DURATIONS = [2, 3, 4, 5, 7, 10, 14];
 
 export default function PackingScreen() {
+  const navigation = useNavigation();
   const [destination, setDestination] = useState("");
   const [duration, setDuration] = useState(4);
   const [purpose, setPurpose] = useState("leisure");
@@ -37,6 +40,17 @@ export default function PackingScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [packed, setPacked] = useState<number[]>([]);
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      router.replace("/(tabs)");
+    }
+    return true;
+  }, [navigation]);
+
+  useHardwareBack(handleBack);
 
   const generate = async () => {
     if (!destination.trim()) {
@@ -61,10 +75,7 @@ export default function PackingScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} accessibilityLabel="Go back">
-          <ArrowLeft size={22} color={colors.accent} strokeWidth={1.5} />
-        </TouchableOpacity>
-        <Text style={styles.title} accessibilityRole="header">Packing Assistant</Text>
+        <BackButton title="Packing Assistant" />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>

@@ -10,12 +10,14 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useNavigation } from "expo-router";
 
-import { ArrowLeft, Check, Gem, RefreshCw } from "../lib/icons";
+import { Check, Gem, RefreshCw } from "../lib/icons";
 import { CapsuleItem, CapsuleResponse, outfitApi } from "../lib/api";
 import { BASE_URL } from "../config/api";
 import { resolvePhotoUrl } from "../lib/constants";
+import useHardwareBack from "../lib/useHardwareBack";
+import BackButton from "../components/BackButton";
 import {
   borderRadius as br,
   colors,
@@ -31,12 +33,24 @@ const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"
 const TARGET_COUNTS = [10, 15, 20, 25, 30, 40];
 
 export default function CapsuleScreen() {
+  const navigation = useNavigation();
   const [targetCount, setTargetCount] = useState(20);
   const [occasion, setOccasion] = useState<string | null>(null);
   const [locked, setLocked] = useState<number[]>([]);
   const [capsule, setCapsule] = useState<CapsuleResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      router.replace("/(tabs)");
+    }
+    return true;
+  }, [navigation]);
+
+  useHardwareBack(handleBack);
 
   const build = useCallback(
     async (lockedIds: number[] = locked) => {
@@ -84,10 +98,7 @@ export default function CapsuleScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} accessibilityLabel="Go back">
-          <ArrowLeft size={22} color={colors.accent} strokeWidth={1.5} />
-        </TouchableOpacity>
-        <Text style={styles.title} accessibilityRole="header">Capsule Wardrobe</Text>
+        <BackButton title="Capsule Wardrobe" />
         <TouchableOpacity onPress={() => build()} accessibilityLabel="Regenerate capsule">
           <RefreshCw size={20} color={colors.accent} strokeWidth={1.5} />
         </TouchableOpacity>

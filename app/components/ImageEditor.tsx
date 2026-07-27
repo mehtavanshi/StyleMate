@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
+import useHardwareBack from "../lib/useHardwareBack";
 import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../theme/tokens";
 
 const HANDLE_HIT = 32;
@@ -31,6 +32,13 @@ interface Props {
 
 export default function ImageEditor({ uri: initialUri, imageWidth: initialW, imageHeight: initialH, onApply, onCancel }: Props) {
   const [busy, setBusy] = useState(false);
+
+  const handleBack = useCallback(() => {
+    onCancel();
+    return true;
+  }, [onCancel]);
+
+  useHardwareBack(handleBack);
   const [currentUri, setCurrentUri] = useState(initialUri);
   const [imgW, setImgW] = useState(initialW);
   const [imgH, setImgH] = useState(initialH);

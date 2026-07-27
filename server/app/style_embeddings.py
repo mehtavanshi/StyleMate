@@ -408,25 +408,82 @@ def compute_and_store_embedding(item_id: int, db: Session) -> None:
     logger.info("Stored embedding for item %d", item_id)
 
 
-def compute_missing_embeddings(db: Session) -> int:
+def compute_missing_embeddings(
+    db: Session | None = None,
+    batch_size: int = 5,
+    delay: float = 1.0,
+) -> dict:
     """Compute embeddings for all items that don't have one yet.
 
-    Returns the number of items processed.
+    Processes items in small batches with a short delay between batches
+    to avoid saturating CPU when running the local FashionCLIP model.
+
+    Args:
+        db: Optional SQLAlchemy session.  If ``None``, opens its own via
+            ``SessionLocal()`` and closes it before returning.
+        batch_size: Items to process before inserting a delay.
+        delay: Seconds to sleep between batches.
+
+    Returns:
+        A dict with keys ``total`` (int), ``succeeded`` (int), and
+        ``failures`` (list of ``(item_id, reason_string)`` tuples).
     """
-    from app.models import ClothingItem
+    import torch
 
-    items = (
-        db.query(ClothingItem)
-        .filter(ClothingItem.embedding_json.is_(None))
-        .all()
-    )
+    if torch.cuda.is_available():
+        logger.info("FashionCLIP running on CUDA")
+    else:
+        logger.info("FashionCLIP running on CPU (~2-5 s/image)")
 
-    for item in items:
-        if item.id in _embedding_cache:
-            continue
-        compute_and_store_embedding(item.id, db)
+    own_session = db is None
+    if own_session:
+        from app.database import SessionLocal
 
-    return len(items)
+        db = SessionLocal()
+
+    try:
+        from app.models import ClothingItem
+
+        items = (
+            db.query(ClothingItem)
+            .filter(ClothingItem.embedding_json.is_(None))
+            .all()
+        )
+        total = len(items)
+        if total == 0:
+            return {"total": 0, "succeeded": 0, "failures": []}
+
+        succeeded = 0
+        failures: list[tuple[int, str]] = []
+
+        for offset in range(0, total, batch_size):
+            for item in items[offset : offset + batch_size]:
+                try:
+                    compute_and_store_embedding(item.id, db)
+                    db.refresh(item)
+                    if item.embedding_json:
+                        succeeded += 1
+                    else:
+                        reason = "no image_url" if not item.image_url else "compute failed"
+                        failures.append((item.id, reason))
+                except Exception:
+                    logger.exception("Item %d failed", item.id)
+                    db.rollback()
+                    failures.append((item.id, "unexpected error"))
+
+            if offset + batch_size < total:
+                import time
+
+                time.sleep(delay)
+
+        return {
+            "total": total,
+            "succeeded": succeeded,
+            "failures": failures,
+        }
+    finally:
+        if own_session:
+            db.close()
 
 
 def rank_by_visual_fit(

@@ -30,7 +30,7 @@ TAXONOMY: dict[str, dict[str, list[str]]] = {
     "accessory": {
         "ethnic": [
             "bangles", "jhumkas", "maang_tikka", "potli_bag",
-            "juttis", "nose_ring", "waist_belt",
+            "juttis", "nose_ring", "waist_belt", "dupatta",
         ],
     },
 }
@@ -182,3 +182,51 @@ SILHOUETTE_RULES: dict[str, list[str]] = {
 
 EMBELLISHMENT_MATCH_BONUS = 0.90
 EMBELLISHMENT_PLAIN_BOOST = 0.60
+
+# ── Wear family (ethnic vs western) ──
+
+WEAR_FAMILY_DEFAULTS: dict[str, str] = {
+    "kurti": "ethnic",
+    "top": "western",
+    "bottom": "western",
+    "dress": "western",
+    "outerwear": "western",
+    "footwear": "western",
+    "accessory": "western",
+}
+
+WEAR_FAMILY_SUBCATEGORY_OVERRIDES: dict[str, str] = {
+    "saree": "ethnic",
+    "lehenga": "ethnic",
+    "salwar_kameez": "ethnic",
+    "anarkali": "ethnic",
+    "kurti_short": "ethnic",
+    "kurti_long": "ethnic",
+    "palazzo_suit": "ethnic",
+    "dupatta": "ethnic",
+    "juttis": "ethnic",
+    "bangles": "ethnic",
+    "jhumkas": "ethnic",
+    "maang_tikka": "ethnic",
+    "potli_bag": "ethnic",
+}
+
+
+# ── Anchor vs variant roles for outfit deduplication ──
+# Anchor pieces define an outfit's identity; swapping only a variant
+# (e.g. different shoes with the same top+bottom) should not produce a
+# distinct cached outfit entry. Only the highest-scoring combination of
+# variants is kept per unique set of anchor items.
+
+ANCHOR_ROLES: set[str] = {"top", "bottom", "dress", "kurti", "saree"}
+VARIANT_ROLES: set[str] = {"footwear", "accessory", "outerwear"}
+
+
+def get_wear_family(category: str | None, subcategory: str | None) -> str | None:
+    if not category:
+        return None
+    if subcategory:
+        override = WEAR_FAMILY_SUBCATEGORY_OVERRIDES.get(subcategory)
+        if override is not None:
+            return override
+    return WEAR_FAMILY_DEFAULTS.get(category)

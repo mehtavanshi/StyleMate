@@ -22,7 +22,7 @@
     },
     "android": {
       "package": "com.stylemate.app",
-      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "READ_MEDIA_IMAGES"]
+      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "READ_MEDIA_IMAGES", "WAKE_LOCK"]
     },
     "web": {
       "bundler": "metro",

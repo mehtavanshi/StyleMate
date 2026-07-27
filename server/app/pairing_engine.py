@@ -636,6 +636,42 @@ def _gender_compatible(item1: ClothingItem, item2: ClothingItem) -> bool:
     return g1 == g2
 
 
+def _wear_family_compatible(item1: object, item2: object) -> bool:
+    from app.fashion_taxonomy import get_wear_family
+
+    f1 = get_wear_family(
+        getattr(item1, "category", None),
+        getattr(item1, "subcategory", None),
+    )
+    f2 = get_wear_family(
+        getattr(item2, "category", None),
+        getattr(item2, "subcategory", None),
+    )
+    if f1 is None or f2 is None:
+        return True
+    if f1 == f2:
+        return True
+    c1 = getattr(item1, "category", None)
+    c2 = getattr(item2, "category", None)
+    if c1 in ("accessory", "footwear") and f1 == "western":
+        return True
+    if c2 in ("accessory", "footwear") and f2 == "western":
+        return True
+    return False
+
+
+def _anchor_key(combo: list[object]) -> str:
+    from app.fashion_taxonomy import ANCHOR_ROLES
+
+    items = sorted(
+        (i for i in combo if getattr(i, "category", None) in ANCHOR_ROLES),
+        key=lambda i: getattr(i, "category", "") or "",
+    )
+    return "|".join(
+        f"{getattr(i, 'category', '')}:{i.id}" for i in items
+    )
+
+
 def _hard_rule_score(item1: ClothingItem, item2: ClothingItem) -> float:
     """Soft score [0, 1] from occasion and formality matching.
 
@@ -766,6 +802,8 @@ def _score_pair_uncached(
 ) -> tuple[float, str, dict[str, float]]:
     if not _gender_compatible(item1, item2):
         return 0.0, "target_gender mismatch", {}
+    if not _wear_family_compatible(item1, item2):
+        return 0.0, "wear_family mismatch", {}
 
     color_score = score_pair_color(item1.color, item2.color)
     embed_score = _embedding_similarity(item1, item2)
@@ -1137,6 +1175,83 @@ def _recommender_ml_weight(feedback_count: int) -> float:
     return min(0.30, max(0.0, 0.30 * ramp))
 
 
+def _generate_outfit_candidates(
+    user_id: int,
+    user_body_type: str | None,
+    ml_available: bool,
+    ml_weight: float,
+    tops: list[ClothingItem],
+    bottoms: list[ClothingItem],
+    footwear: list[ClothingItem],
+    dresses: list[ClothingItem],
+    outerwear: list[ClothingItem],
+    accessories: list[ClothingItem],
+) -> list[tuple[float, str, dict[str, float], list[ClothingItem]]]:
+    candidates: list[tuple[float, str, dict[str, float], list[ClothingItem]]] = []
+
+    def _add_candidate(combo, base_score, reason, bd):
+        final_score = base_score
+        if ml_available:
+            try:
+                from app.recommender import get_recommendation_score
+
+                ml_score = get_recommendation_score(
+                    user_id, [i.id for i in combo]
+                )
+                final_score = (1.0 - ml_weight) * base_score + ml_weight * ml_score
+                bd = dict(bd)
+                bd["recommender_ml"] = round(ml_score, 3)
+                bd["ml_weight"] = round(ml_weight, 3)
+            except Exception:
+                pass
+        candidates.append((final_score, reason, bd, combo))
+
+    # Dresses are single-piece: pair with footwear + optional accessory
+    for dress in dresses:
+        for shoe in footwear or [None]:
+            combo = [dress] + ([shoe] if shoe else [])
+            score, reason, bd = score_outfit(combo, user_body_type)
+            score = _apply_body_type_boost(score, combo, user_body_type)
+            _add_candidate(combo, score, reason, bd)
+
+        for shoe in footwear or [None]:
+            for acc in accessories:
+                combo = [dress] + ([shoe] if shoe else []) + [acc]
+                s, r, bd = score_outfit(combo, user_body_type)
+                s = _apply_body_type_boost(s, combo, user_body_type)
+                _add_candidate(combo, s, r, bd)
+
+    # Top + bottom combinations
+    for top in tops:
+        for bottom in bottoms:
+            for shoe in footwear or [None]:
+                combo = [top, bottom] + ([shoe] if shoe else [])
+                score, reason, bd = score_outfit(combo, user_body_type)
+                score = _apply_body_type_boost(score, combo, user_body_type)
+                _add_candidate(combo, score, reason, bd)
+
+                for coat in outerwear:
+                    full = [top, bottom, coat] + ([shoe] if shoe else [])
+                    s, r, bd = score_outfit(full, user_body_type)
+                    s = _apply_body_type_boost(s, full, user_body_type)
+                    _add_candidate(full, s, r, bd)
+
+                for acc in accessories:
+                    full = [top, bottom] + ([shoe] if shoe else []) + [acc]
+                    s, r, bd = score_outfit(full, user_body_type)
+                    s = _apply_body_type_boost(s, full, user_body_type)
+                    _add_candidate(full, s, r, bd)
+
+    if not candidates and footwear:
+        for shoe in footwear:
+            score, reason, bd = score_outfit([shoe], user_body_type)
+            score = _apply_body_type_boost(score, [shoe], user_body_type)
+            _add_candidate([shoe], score, reason, bd)
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return candidates
+
+
 def suggest_outfits(
     db: Session,
     user_id: int,
@@ -1202,74 +1317,30 @@ def suggest_outfits(
     outerwear = by_category.get("outerwear", [])
     accessories = by_category.get("accessory", [])
 
-    candidates: list[tuple[float, str, dict[str, float], list[ClothingItem]]] = []
+    candidates = _generate_outfit_candidates(
+        user_id=user_id,
+        user_body_type=user_body_type,
+        ml_available=ml_available,
+        ml_weight=ml_weight,
+        tops=tops,
+        bottoms=bottoms,
+        footwear=footwear,
+        dresses=dresses,
+        outerwear=outerwear,
+        accessories=accessories,
+    )
 
-    def _add_candidate(combo, base_score, reason, bd):
-        final_score = base_score
-        if ml_available:
-            try:
-                ml_score = get_recommendation_score(
-                    user_id, [i.id for i in combo]
-                )
-                final_score = (1.0 - ml_weight) * base_score + ml_weight * ml_score
-                bd = dict(bd)
-                bd["recommender_ml"] = round(ml_score, 3)
-                bd["ml_weight"] = round(ml_weight, 3)
-            except Exception:
-                # Fall back to rule-based-only scoring.
-                pass
-        candidates.append((final_score, reason, bd, combo))
+    # Group by anchor items: only the best variant combination per unique set
+    # of anchor pieces survives, preventing near-duplicates that differ only
+    # in footwear/accessory/outerwear from flooding the top-N list.
+    best_by_anchor: dict[str, tuple[float, str, dict[str, float], list[ClothingItem]]] = {}
+    for candidate in candidates:
+        score, _reason, _bd, combo = candidate
+        key = _anchor_key(combo)
+        if key not in best_by_anchor or score > best_by_anchor[key][0]:
+            best_by_anchor[key] = candidate
 
-    # Dresses are single-piece: pair with footwear + optional accessory
-    for dress in dresses:
-        for shoe in footwear or [None]:
-            combo = [dress] + ([shoe] if shoe else [])
-            score, reason, bd = score_outfit(combo, user_body_type)
-            score = _apply_body_type_boost(score, combo, user_body_type)
-            _add_candidate(combo, score, reason, bd)
-
-        # Dress + shoes + accessory
-        for shoe in footwear or [None]:
-            for acc in accessories:
-                combo = [dress] + ([shoe] if shoe else []) + [acc]
-                s, r, bd = score_outfit(combo, user_body_type)
-                s = _apply_body_type_boost(s, combo, user_body_type)
-                _add_candidate(combo, s, r, bd)
-
-    # Top + bottom combinations
-    for top in tops:
-        for bottom in bottoms:
-            # With footwear
-            for shoe in footwear or [None]:
-                combo = [top, bottom] + ([shoe] if shoe else [])
-                score, reason, bd = score_outfit(combo, user_body_type)
-                score = _apply_body_type_boost(score, combo, user_body_type)
-                _add_candidate(combo, score, reason, bd)
-
-                # With outerwear
-                for coat in outerwear:
-                    full = [top, bottom, coat] + ([shoe] if shoe else [])
-                    s, r, bd = score_outfit(full, user_body_type)
-                    s = _apply_body_type_boost(s, full, user_body_type)
-                    _add_candidate(full, s, r, bd)
-
-                # With accessory
-                for acc in accessories:
-                    full = [top, bottom] + ([shoe] if shoe else []) + [acc]
-                    s, r, bd = score_outfit(full, user_body_type)
-                    s = _apply_body_type_boost(s, full, user_body_type)
-                    _add_candidate(full, s, r, bd)
-
-    # If no tops/bottoms but have outerwear on its own, skip
-    # Fallback: only footwear
-    if not candidates and footwear:
-        for shoe in footwear:
-            score, reason, bd = score_outfit([shoe], user_body_type)
-            score = _apply_body_type_boost(score, [shoe], user_body_type)
-            _add_candidate([shoe], score, reason, bd)
-
-    # Sort by score descending
-    candidates.sort(key=lambda x: x[0], reverse=True)
+    anchor_winners = sorted(best_by_anchor.values(), key=lambda x: x[0], reverse=True)
 
     # Deduplicate by item IDs, with diversity: prefer varied color palettes
     seen = set()
@@ -1277,7 +1348,7 @@ def suggest_outfits(
     results: list[OutfitSuggestion] = []
     bucket_size = max(offset + limit, limit * 2, 10)
 
-    for score, reason, bd, combo in candidates[:bucket_size]:
+    for score, reason, bd, combo in anchor_winners[:bucket_size]:
         key = tuple(sorted(i.id for i in combo))
         if key in seen:
             continue
@@ -1317,3 +1388,140 @@ def suggest_outfits(
     total = len(results)
     sliced = results[offset : offset + limit]
     return {"items": sliced, "total": total}
+
+
+def generate_and_cache_outfits(
+    db: Session,
+    user_id: int,
+    occasion_tag: str | None = None,
+    target_gender: str | None = None,
+    limit: int = 25,
+) -> dict:
+    """Generate outfit candidates, deduplicate by anchor pieces, and cache.
+
+    Unlike ``suggest_outfits`` (which applies additional color-diversity
+    dedup for the API response), this function keeps the single best
+    variant combination per unique set of anchor items, then returns
+    the top ``limit`` results.  The result dict matches the same
+    ``{items: [...], total: int}`` shape as ``suggest_outfits``.
+
+    Cache integration: callers should store ``result["items"]`` in
+    their preferred cache backend and call
+    ``invalidate_user_outfits(user_id)`` when an item changes.
+    """
+    from app.models import User
+
+    user = db.query(User).filter(User.id == user_id).first()
+    user_body_type: str | None = getattr(user, "body_type", None) if user else None
+
+    all_items = db.query(ClothingItem).filter(ClothingItem.user_id == user_id)
+    if occasion_tag:
+        all_items = all_items.filter(ClothingItem.occasion_tag.contains(occasion_tag))
+    if target_gender:
+        all_items = all_items.filter(ClothingItem.target_gender == target_gender)
+    all_items = all_items.all()
+
+    by_category: dict[str, list[ClothingItem]] = {}
+    for item in all_items:
+        by_category.setdefault(item.category, []).append(item)
+
+    candidates = _generate_outfit_candidates(
+        user_id=user_id,
+        user_body_type=user_body_type,
+        ml_available=False,
+        ml_weight=0.0,
+        tops=by_category.get("top", []),
+        bottoms=by_category.get("bottom", []),
+        footwear=by_category.get("footwear", []),
+        dresses=by_category.get("dress", []),
+        outerwear=by_category.get("outerwear", []),
+        accessories=by_category.get("accessory", []),
+    )
+
+    # Anchor dedup: keep only the highest-scoring variant per anchor set
+    best_by_anchor: dict[str, tuple] = {}
+    for candidate in candidates:
+        score, _reason, _bd, combo = candidate
+        key = _anchor_key(combo)
+        if key not in best_by_anchor or score > best_by_anchor[key][0]:
+            best_by_anchor[key] = candidate
+
+    anchor_winners = sorted(
+        best_by_anchor.values(), key=lambda x: x[0], reverse=True
+    )[:limit]
+
+    results = [
+        OutfitSuggestion(
+            items=[
+                {
+                    "id": i.id,
+                    "name": i.name,
+                    "category": i.category,
+                    "color": i.color,
+                    "pattern": i.pattern,
+                    "fabric_type": i.fabric_type,
+                    "fit_type": i.fit_type,
+                    "sleeve_length": i.sleeve_length,
+                    "image_url": i.image_url,
+                    "target_gender": i.target_gender,
+                }
+                for i in combo
+            ],
+            score=score,
+            reason=reason,
+            breakdown=bd,
+        )
+        for score, reason, bd, combo in anchor_winners
+    ]
+
+    # Persist to the cached_outfits table: replace all rows for this user
+    # with the new top ``limit`` anchor-deduplicated results.  The unique
+    # constraint on (user_id, anchor_key) is a safety net — the in-app
+    # anchor dedup above already guarantees one winner per key.
+    from app.models import CachedOutfit
+    import json
+
+    db.query(CachedOutfit).filter(CachedOutfit.user_id == user_id).delete()
+    for score, reason, bd, combo in anchor_winners:
+        anchor_key = _anchor_key(combo)
+        items_data = [
+            {
+                "id": i.id,
+                "name": i.name,
+                "category": i.category,
+                "color": i.color,
+                "pattern": i.pattern,
+                "fabric_type": i.fabric_type,
+                "fit_type": i.fit_type,
+                "sleeve_length": i.sleeve_length,
+                "image_url": i.image_url,
+                "target_gender": i.target_gender,
+            }
+            for i in combo
+        ]
+        outfit = CachedOutfit(
+            user_id=user_id,
+            anchor_key=anchor_key,
+            items_json=json.dumps(items_data),
+            score=round(score, 3),
+            reason=reason,
+            breakdown_json=json.dumps(bd) if bd else None,
+        )
+        db.add(outfit)
+    db.commit()
+
+    return {"items": results, "total": len(results)}
+
+
+def invalidate_user_outfits(user_id: int, db: Session) -> None:
+    """Remove all cached outfit rows for a user.
+
+    Call this whenever an item owned by the user is created, updated, or
+    deleted — any cached combination involving that item is now stale.
+    """
+    from app.models import CachedOutfit
+
+    deleted = db.query(CachedOutfit).filter(CachedOutfit.user_id == user_id).delete()
+    db.commit()
+    if deleted:
+        logger.info("Invalidated %d cached outfits for user %d", deleted, user_id)
