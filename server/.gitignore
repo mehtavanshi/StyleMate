@@ -8,3 +8,4 @@ venv/
 ../api_key.md
 models/
 *.pkl
+.hf_cache/

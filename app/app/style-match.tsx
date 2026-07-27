@@ -43,11 +43,25 @@ import {
   spacing,
 } from "../theme/tokens";
 
+const PAGE_SIZE = 5;
+
+const countMatches = (d: StyleMatchResponse) =>
+  d.alreadyOwned.length +
+  d.matchingBottoms.length +
+  d.matchingTops.length +
+  d.matchingFootwear.length +
+  d.matchingAccessories.length +
+  d.layeringSuggestions.length +
+  d.shoppingSuggestions.length;
+
 export default function StyleMatchScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const [data, setData] = useState<StyleMatchResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [exhausted, setExhausted] = useState(false);
 
   useEffect(() => {
     navigation.setOptions({ title: "Style Match", headerShown: true });
@@ -96,6 +110,34 @@ export default function StyleMatchScreen() {
 
   const selected = data.selectedItem;
 
+  // Ask the server for a deeper page of generated matches, then reveal it.
+  // Without the refetch the button would just re-show the same cached set.
+  const loadMore = async () => {
+    const next = limit + PAGE_SIZE;
+    setLimit(next);
+    if (exhausted) return;
+    setLoadingMore(true);
+    try {
+      const res = await styleMatchApi.get(Number(id), next);
+      if (countMatches(res) <= countMatches(data)) setExhausted(true);
+      setData(res);
+    } catch {
+      setExhausted(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const hasMore = [
+    data.alreadyOwned,
+    data.matchingBottoms,
+    data.matchingTops,
+    data.matchingFootwear,
+    data.matchingAccessories,
+    data.layeringSuggestions,
+    data.shoppingSuggestions,
+  ].some((list) => (list?.length ?? 0) > limit);
+
   return (
     <SafeAreaView style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -127,26 +169,26 @@ export default function StyleMatchScreen() {
         {data.alreadyOwned.length === 0 ? (
           <Empty text="Nothing else in your wardrobe pairs with this yet." />
         ) : (
-          data.alreadyOwned.map((it, i) => (
+          data.alreadyOwned.slice(0, limit).map((it, i) => (
             <MatchCard key={`own-${i}`} item={it} onPress={() => {}} />
           ))
         )}
       </Section>
 
       {/* Matching bottoms */}
-      <MatchSection title="Matching Bottoms" icon={Shirt} items={data.matchingBottoms} />
+      <MatchSection title="Matching Bottoms" icon={Shirt} items={data.matchingBottoms} limit={limit} />
 
       {/* Matching tops */}
-      <MatchSection title="Matching Tops" icon={Shirt} items={data.matchingTops} />
+      <MatchSection title="Matching Tops" icon={Shirt} items={data.matchingTops} limit={limit} />
 
       {/* Footwear */}
-      <MatchSection title="Footwear" icon={Watch} items={data.matchingFootwear} />
+      <MatchSection title="Footwear" icon={Watch} items={data.matchingFootwear} limit={limit} />
 
       {/* Accessories */}
-      <MatchSection title="Accessories" icon={Watch} items={data.matchingAccessories} />
+      <MatchSection title="Accessories" icon={Watch} items={data.matchingAccessories} limit={limit} />
 
       {/* Layering */}
-      <MatchSection title="Layering" icon={Layers} items={data.layeringSuggestions} />
+      <MatchSection title="Layering" icon={Layers} items={data.layeringSuggestions} limit={limit} />
 
       {/* Best color pairings */}
       <ColorSection title="Best Color Pairings" icon={Palette} colors={data.recommendedColors} good />
@@ -167,7 +209,7 @@ export default function StyleMatchScreen() {
 
       {/* Shop matching items */}
       <Section title="Shop Matching Items" icon={ShoppingBag}>
-        {data.shoppingSuggestions.map((s: ShoppingSuggestion, i) => (
+        {data.shoppingSuggestions.slice(0, limit).map((s: ShoppingSuggestion, i) => (
           <View key={`shop-${i}`} style={styles.shopBlock}>
             <View style={styles.shopHead}>
               <Text style={styles.shopName}>{s.item_name}</Text>
@@ -190,6 +232,22 @@ export default function StyleMatchScreen() {
           </View>
         ))}
       </Section>
+
+      {(hasMore || !exhausted) && (
+        <TouchableOpacity
+          style={styles.loadMoreBtn}
+          onPress={loadMore}
+          disabled={loadingMore}
+          accessibilityRole="button"
+          accessibilityLabel="Load more matches"
+        >
+          {loadingMore ? (
+            <ActivityIndicator size="small" color={colors.accent} />
+          ) : (
+            <Text style={styles.loadMoreText}>Load More</Text>
+          )}
+        </TouchableOpacity>
+      )}
     </ScrollView>
     </SafeAreaView>
   );
@@ -219,10 +277,12 @@ function MatchSection({
   title,
   icon,
   items,
+  limit,
 }: {
   title: string;
   icon?: React.ComponentType<LucideProps>;
   items: StyleMatchItem[];
+  limit: number;
 }) {
   if (!items || items.length === 0) {
     return (
@@ -233,7 +293,7 @@ function MatchSection({
   }
   return (
     <Section title={title} icon={icon}>
-      {items.map((it, i) => (
+      {items.slice(0, limit).map((it, i) => (
         <MatchCard key={`${title}-${i}`} item={it} />
       ))}
     </Section>
@@ -403,4 +463,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   storeBtnText: { fontSize: fontSize.xs, fontWeight: fontWeight.semibold, color: colors.text.white },
+
+  loadMoreBtn: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.accent,
+    borderRadius: br.md,
+    minHeight: MIN_TOUCH_TARGET,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadMoreText: { fontSize: fontSize.base, fontWeight: fontWeight.bold, color: colors.accent },
 });

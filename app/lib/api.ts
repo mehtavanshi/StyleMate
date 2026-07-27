@@ -373,8 +373,10 @@ export interface StyleMatchResponse {
 }
 
 export const styleMatchApi = {
-  get: (itemId: number) =>
-    apiFetch<StyleMatchResponse>(`/style-match?item_id=${itemId}`),
+  get: (itemId: number, limit?: number) =>
+    apiFetch<StyleMatchResponse>(
+      `/style-match?item_id=${itemId}${limit ? `&limit=${limit}` : ""}`
+    ),
 };
 
 export interface ShopMatchProduct {

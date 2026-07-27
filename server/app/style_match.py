@@ -709,6 +709,39 @@ def _pick_silhouette_subcategory(
 # -- Generated (non-owned) suggestions --
 
 
+def _candidate_combos(
+    templates: list[dict], rotation: list[str], count: int
+) -> list[tuple[int, dict, str]]:
+    """Expand templates into (index, template, color) candidates.
+
+    There are only 2-5 templates per category/occasion, so template count
+    alone caps how many suggestions can ever exist — asking for a deeper
+    page used to return the same short list. The extra supply is the color
+    rotation: a template whose name carries a ``{color}`` placeholder is a
+    genuinely different garment in a different color, and each variant is
+    scored independently by the pairing engine.
+
+    Colour-major order (every template once, then a second colour for
+    each, …) so a shallow request still spans every template. Twice
+    *count* is generated because the diversity/threshold filter downstream
+    discards some.
+    """
+    combos: list[tuple[int, dict, str]] = []
+    for ci in range(len(rotation)):
+        for i, tpl in enumerate(templates):
+            fixed = tpl.get("color")
+            if fixed or "{color}" not in tpl["name"]:
+                # Fixed-colour or colour-less name: only one variant exists,
+                # emitting it again would just be a duplicate card.
+                if ci == 0:
+                    combos.append((i, tpl, fixed or rotation[i % len(rotation)]))
+                continue
+            combos.append((i, tpl, rotation[(i + ci) % len(rotation)]))
+        if len(combos) >= count * 2:
+            break
+    return combos[: count * 2]
+
+
 def _generated_suggestions(
     selected: ClothingItem,
     target_category: str,
@@ -737,13 +770,16 @@ def _generated_suggestions(
     occ = _primary_occasion(selected.occasion_tag) or "casual"
 
     scored: list[StyleMatchItem] = []
-    for i, tpl in enumerate(templates[:count]):
-        color = tpl["color"] or rotation[i % len(rotation)]
+    seen_names: set[str] = set()
+    for i, tpl, color in _candidate_combos(templates, rotation, count):
         name = (
             tpl["name"].format(color=color.capitalize())
             if "{color}" in tpl["name"]
             else tpl["name"]
         )
+        if name in seen_names:
+            continue
+        seen_names.add(name)
 
         sub = _pick_silhouette_subcategory(
             selected, target_category, tpl.get("subcategory"), i
@@ -884,7 +920,12 @@ def _build_shop_links(query: str) -> list[dict]:
 # -- Main entry --
 
 
-def generate_style_match(item_id: int, db: Session) -> StyleMatchResult:
+def generate_style_match(
+    item_id: int, db: Session, limit: int = MAX_CANDIDATES_PER_CATEGORY
+) -> StyleMatchResult:
+    """*limit* is the per-category depth of generated suggestions — the
+    client raises it on "Load More" to get fresh matchable items rather
+    than re-showing the same page."""
     selected = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
     if not selected:
         raise ValueError(f"Item {item_id} not found")
@@ -945,8 +986,8 @@ def generate_style_match(item_id: int, db: Session) -> StyleMatchResult:
     # already hanging in the wardrobe.
     generated_map: dict[str, list[StyleMatchItem]] = {}
     for cat in partner_cats:
-        generated = _generated_suggestions(selected, cat, owned_ids)
-        generated_map[cat] = _apply_style_diversity(generated)
+        generated = _generated_suggestions(selected, cat, owned_ids, count=limit)
+        generated_map[cat] = _apply_style_diversity(generated, max_items=limit)
         # Only pad a section with invented items when the wardrobe has nothing
         # to offer there — otherwise a real garment is always the better answer.
         if not section_map.get(cat):
@@ -981,31 +1022,40 @@ def generate_style_match(item_id: int, db: Session) -> StyleMatchResult:
     result.avoid_colors = avoid
     result.occasion_outfits = _occasion_ideas(selected)
 
-    # 4) Shopping suggestions: one group per partner category's top
-    #    (already threshold-qualified) pick.
-    for cat in partner_cats:
-        # Deliberately generated_map, not section_map: shopping links are for
-        # things to buy, and section_map now leads with items already owned.
-        picks = generated_map.get(cat, [])
-        if not picks:
-            continue
-        top = picks[0]
-        shop_query = _gendered_query(top.name, selected.target_gender)
-        links = _build_shop_links(shop_query)
-        links.append(
-            {"store": "Google Shopping", "url": build_google_shopping_link(shop_query)}
-        )
-        links.append({"store": "Meesho", "url": build_meesho_search_link(shop_query)})
-        result.shopping_suggestions.append(
-            {
-                "category": cat,
-                "item_name": top.name,
-                "match_percentage": top.match_percentage,
-                "reason": top.reason,
-                "owned": False,
-                "shopping_links": links,
-            }
-        )
+    # 4) Shopping suggestions: every partner category's (already
+    #    threshold-qualified) picks.
+    # Deliberately generated_map, not section_map: shopping links are for
+    # things to buy, and section_map now leads with items already owned.
+    # Every diverse pick, not just the top one: the client shows the first few
+    # and pages the rest behind "Load More". Round-robin across categories so
+    # the first page still spans every partner category instead of being all
+    # bottoms.
+    rounds = max((len(generated_map.get(c, [])) for c in partner_cats), default=0)
+    for rank in range(rounds):
+        for cat in partner_cats:
+            picks = generated_map.get(cat, [])
+            if rank >= len(picks):
+                continue
+            pick = picks[rank]
+            shop_query = _gendered_query(pick.name, selected.target_gender)
+            links = _build_shop_links(shop_query)
+            links.append(
+                {
+                    "store": "Google Shopping",
+                    "url": build_google_shopping_link(shop_query),
+                }
+            )
+            links.append({"store": "Meesho", "url": build_meesho_search_link(shop_query)})
+            result.shopping_suggestions.append(
+                {
+                    "category": cat,
+                    "item_name": pick.name,
+                    "match_percentage": pick.match_percentage,
+                    "reason": pick.reason,
+                    "owned": False,
+                    "shopping_links": links,
+                }
+            )
 
     return result
 

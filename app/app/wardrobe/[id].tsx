@@ -35,6 +35,8 @@ const COMPLEMENTARY: Record<string, string[]> = {
   accessory: ["top", "bottom"],
 };
 
+const PAGE_SIZE = 5;
+
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
@@ -43,6 +45,7 @@ export default function ItemDetailScreen() {
   const [imgFailed, setImgFailed] = useState(false);
   const [matches, setMatches] = useState<SuggestionMatch[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(false);
+  const [visibleMatches, setVisibleMatches] = useState(PAGE_SIZE);
 
   useEffect(() => {
     navigation.setOptions({ title: "Item Details", headerShown: true });
@@ -60,6 +63,7 @@ export default function ItemDetailScreen() {
       }
       all.sort((a, b) => b.color_harmony_score - a.color_harmony_score);
       setMatches(all);
+      setVisibleMatches(PAGE_SIZE);
     } catch {
       // silently fail
     } finally {
@@ -156,13 +160,25 @@ export default function ItemDetailScreen() {
 
       {matches.length > 0 && (
         <View style={styles.matchesSection}>
-          <Text style={styles.matchesTitle}>
-            Match from your wardrobe
-          </Text>
+          <View style={styles.matchesHeader}>
+            <Text style={styles.matchesTitle}>
+              Match from your wardrobe
+            </Text>
+            {matches.length > visibleMatches && (
+              <TouchableOpacity
+                style={styles.moreButton}
+                onPress={() => setVisibleMatches((v) => v + PAGE_SIZE)}
+                accessibilityRole="button"
+                accessibilityLabel="Show more matches"
+              >
+                <Text style={styles.moreButtonText}>More</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
-            data={matches}
+            data={matches.slice(0, visibleMatches)}
             keyExtractor={(m) => String(m.id)}
             contentContainerStyle={styles.matchesList}
             renderItem={({ item: m }) => (
@@ -242,7 +258,15 @@ const styles = StyleSheet.create({
   tagValue: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.accent, textTransform: "capitalize" },
 
   matchesSection: { marginTop: spacing.lg, paddingLeft: spacing.lg },
+  matchesHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingRight: spacing.lg,
+  },
   matchesTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold, color: colors.accent, marginBottom: spacing.sm + 2 },
+  moreButton: { paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, marginBottom: spacing.sm },
+  moreButtonText: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.accent },
   matchesList: { gap: spacing.md, paddingRight: spacing.lg },
   matchCard: {
     width: 130,
