@@ -7,6 +7,7 @@ export interface ClothingItem {
   user_id: number;
   name: string | null;
   category: string;
+  subcategory: string | null;
   color: string | null;
   brand: string | null;
   pattern: string | null;
@@ -17,7 +18,10 @@ export interface ClothingItem {
   fabric_type: string | null;
   fit_type: string | null;
   sleeve_length: string | null;
+  garment_length: string | null;
   formality_score: number | null;
+  embellishments: string | null;
+  style_tags: string | null;
   image_url: string | null;
   tags: string | null;
   created_at: string;
@@ -152,6 +156,7 @@ export const consentApi = {
 
 export interface TagResult {
   category: string | null;
+  subcategory: string | null;
   dominant_color: string | null;
   pattern: string | null;
   occasion_tag: string | null;
@@ -159,6 +164,8 @@ export interface TagResult {
   fabric_type: string | null;
   fit_type: string | null;
   sleeve_length: string | null;
+  garment_length: string | null;
+  embellishments: string | null;
   target_gender: string | null;
   formality_score: number | null;
   _confidence: Record<string, number>;

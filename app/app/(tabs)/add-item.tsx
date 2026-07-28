@@ -28,6 +28,16 @@ const TARGET_GENDERS = ["unisex", "men", "women"];
 const FABRIC_TYPES = ["cotton", "denim", "silk", "wool", "leather", "linen", "knit", "synthetic"];
 const FIT_TYPES = ["slim", "regular", "oversized", "loose"];
 const SLEEVE_LENGTHS = ["sleeveless", "short", "three_quarter", "long", "not_applicable"];
+const SUBCATEGORY_OPTIONS: Record<string, string[]> = {
+  top: ["none", "crop_top", "regular_top", "waist_length_top", "tunic", "maxi_top", "peplum_top", "off_shoulder_top", "tube_top", "halter_top"],
+  bottom: ["none", "skinny", "straight_leg", "bootcut", "flare", "wide_leg", "baggy_mom", "boyfriend", "barrel_leg", "mini_skirt", "midi_skirt", "maxi_skirt", "a_line_skirt", "pencil_skirt", "pleated_skirt", "wrap_skirt", "shorts", "biker_shorts", "palazzo", "culottes", "joggers", "cargo_pants", "trousers"],
+  kurti: ["none", "kurti_short", "kurti_long", "anarkali", "saree", "lehenga", "salwar_kameez", "palazzo_suit"],
+  accessory: ["none", "bangles", "jhumkas", "maang_tikka", "potli_bag", "juttis", "nose_ring", "waist_belt", "dupatta"],
+};
+const GARMENT_LENGTHS = ["none", "cropped", "waist", "hip", "knee", "midi", "ankle", "floor"];
+const EMBELLISHMENTS = ["none", "ribbon", "bow", "sequins", "lace", "tassel", "mirror_work", "buttons", "fringe", "beads"];
+const FORMALITY_LABELS: Record<number, string> = { 1: "loungewear", 2: "casual", 3: "smart casual", 4: "dressy", 5: "formal" };
+const FORMALITY_TO_SCORE: Record<string, number> = { loungewear: 1, casual: 2, "smart casual": 3, dressy: 4, formal: 5 };
 // NOTE: This map is duplicated in server/app/routers/tagging.py:86 (Python).
 // Both must stay in sync — this copy derives formality_score from the
 // multi-select occasion chips before save; the backend copy is used in
@@ -57,8 +67,12 @@ export default function AddItemScreen() {
   const [fabricType, setFabricType] = useState("");
   const [fitType, setFitType] = useState("");
   const [sleeveLength, setSleeveLength] = useState("");
+  const [subcategory, setSubcategory] = useState("none");
+  const [garmentLength, setGarmentLength] = useState("none");
+  const [embellishments, setEmbellishments] = useState<string[]>(["none"]);
   const [showMore, setShowMore] = useState(false);
   const [needsReview, setNeedsReview] = useState<Record<string, boolean>>({});
+  const [formality, setFormality] = useState("none");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -107,6 +121,19 @@ export default function AddItemScreen() {
     if (!review.fit_type) setFitType(tags.fit_type ?? "");
     if (!review.sleeve_length) setSleeveLength(tags.sleeve_length ?? "");
     if (!review.target_gender) setTargetGender(tags.target_gender ?? "unisex");
+    if (!review.subcategory) setSubcategory(tags.subcategory ?? "none");
+    if (!review.garment_length) setGarmentLength(tags.garment_length ?? "none");
+    if (!review.embellishments) {
+      try {
+        const parsed = JSON.parse(tags.embellishments ?? "[]");
+        setEmbellishments(Array.isArray(parsed) && parsed.length > 0 ? parsed : ["none"]);
+      } catch {
+        setEmbellishments(["none"]);
+      }
+    }
+    if (!review.formality_score && tags.formality_score != null) {
+      setFormality(FORMALITY_LABELS[tags.formality_score] ?? "none");
+    }
   };
 
   const handleSave = async () => {
@@ -116,6 +143,16 @@ export default function AddItemScreen() {
     }
     setSaving(true);
     const occasionStr = occasion.length ? occasion.join(",") : null;
+    const subcatVal = subcategory === "none" ? null : subcategory;
+    const glVal = garmentLength === "none" ? null : garmentLength;
+    const embVal = embellishments.includes("none") || embellishments.length === 0
+      ? "[]"
+      : JSON.stringify(embellishments);
+    const derivedFormalityScore = formality !== "none"
+      ? FORMALITY_TO_SCORE[formality] ?? null
+      : occasion.length
+        ? Math.max(...occasion.map(o => FORMALITY_MAP[o] || 3))
+        : null;
     try {
       await clothingApi.create({
         name: name.trim(),
@@ -129,9 +166,10 @@ export default function AddItemScreen() {
         fabric_type: fabricType || null,
         fit_type: fitType || null,
         sleeve_length: sleeveLength || null,
-        formality_score: occasion.length
-          ? Math.max(...occasion.map(o => FORMALITY_MAP[o] || 3))
-          : null,
+        subcategory: subcatVal,
+        garment_length: glVal,
+        embellishments: embVal,
+        formality_score: derivedFormalityScore,
       });
       resetForm();
       router.replace("/wardrobe");
@@ -155,6 +193,10 @@ export default function AddItemScreen() {
     setFabricType("");
     setFitType("");
     setSleeveLength("");
+    setSubcategory("none");
+    setGarmentLength("none");
+    setEmbellishments(["none"]);
+    setFormality("none");
 
     setShowMore(false);
     setNeedsReview({});
@@ -293,7 +335,19 @@ export default function AddItemScreen() {
       />
 
       <Text style={styles.label}>Category</Text>
-      {renderChips(CATEGORIES, category, setCategory, needsReview.category)}
+      {renderChips(CATEGORIES, category, (v) => {
+        setCategory(v);
+        const opts = SUBCATEGORY_OPTIONS[v];
+        if (!opts) setSubcategory("none");
+        else if (!opts.includes(subcategory)) setSubcategory("none");
+      }, needsReview.category)}
+
+      {SUBCATEGORY_OPTIONS[category] && (
+        <>
+          <Text style={styles.label}>Subcategory</Text>
+          {renderChips(SUBCATEGORY_OPTIONS[category]!, subcategory, setSubcategory, needsReview.subcategory)}
+        </>
+      )}
 
       <Text style={styles.label}>Color</Text>
       <TextInput
@@ -318,6 +372,9 @@ export default function AddItemScreen() {
 
       <Text style={styles.label}>Target Gender</Text>
       {renderChips(TARGET_GENDERS, targetGender, setTargetGender, needsReview.target_gender)}
+
+      <Text style={styles.label}>Formality</Text>
+      {renderChips(["none", "loungewear", "casual", "smart casual", "dressy", "formal"], formality, setFormality, false)}
 
       <TouchableOpacity
         style={styles.moreToggle}
@@ -346,6 +403,22 @@ export default function AddItemScreen() {
           <Text style={styles.label}>Sleeve Length</Text>
           {renderChips(SLEEVE_LENGTHS, sleeveLength, setSleeveLength, needsReview.sleeve_length)}
 
+          <Text style={styles.label}>Garment Length</Text>
+          {renderChips(GARMENT_LENGTHS, garmentLength, setGarmentLength, needsReview.garment_length)}
+
+          <Text style={styles.label}>Embellishments</Text>
+          {renderMultiChips(EMBELLISHMENTS, embellishments, (v) => {
+            if (v === "none") {
+              setEmbellishments(["none"]);
+            } else {
+              setEmbellishments(prev => {
+                const withoutNone = prev.filter(x => x !== "none");
+                return withoutNone.includes(v)
+                  ? withoutNone.filter(x => x !== v)
+                  : [...withoutNone, v];
+              });
+            }
+          }, needsReview.embellishments)}
 
         </View>
       )}
