@@ -83,6 +83,11 @@ STYLE_TAG_CANDIDATES: list[str] = [
     "wide_leg", "asymmetric", "peplum", "ruffled", "scoop_neck",
 ]
 
+# NOTE: This map is duplicated in app/app/(tabs)/add-item.tsx:31 (TypeScript).
+# Both must stay in sync — the frontend copy derives formality_score from
+# multi-select occasion chips before save; this copy is used in the tagging
+# pipeline. If you add/remove/revalue an occasion here, update the other copy
+# too.  TODO: replace with a shared GET /formality-map endpoint.
 FORMALITY_MAP = {
     "loungewear": 1,
     "casual": 2,
@@ -91,6 +96,20 @@ FORMALITY_MAP = {
     "formal": 5,
     "ethnic": 4,
 }
+
+SCORE_TO_FORMALITY: dict[int, str] = {
+    1: "loungewear",
+    2: "casual",
+    3: "smart casual",
+    4: "dressy",
+    5: "formal",
+}
+
+
+def score_to_formality_label(score: int | None) -> str | None:
+    if score is None:
+        return None
+    return SCORE_TO_FORMALITY.get(score)
 
 
 class TagItemRequest(BaseModel):
@@ -233,12 +252,12 @@ def _tag_item_vision_api(image_url: str) -> dict:
             tags[field] = raw_tags[field]
             needs_review[field] = False
 
-    # Derive formality_score from occasion_tag (consistent with FashionCLIP path).
+    # Derive formality_score from occasion_tag (take max across comma-separated values,
+    # matching the frontend's Math.max behavior in add-item.tsx).
     occasion = tags.get("occasion_tag")
     if occasion:
-        formality_score = FORMALITY_MAP.get(occasion, 3)
-        if occasion not in FORMALITY_MAP:
-            logger.info("FALLBACK: occasion=%r not in FORMALITY_MAP, using formality=3", occasion)
+        scores = [FORMALITY_MAP.get(o.strip(), 3) for o in occasion.split(",")]
+        formality_score = max(scores)
     else:
         formality_score = 3
         logger.info("FALLBACK: occasion_tag is None, using formality=3")
@@ -448,12 +467,12 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
         confidence["style_tags"] = 0.0
         needs_review["style_tags"] = True
 
-    # Derive formality_score from occasion_tag (deterministic, always confident).
+    # Derive formality_score from occasion_tag (take max across comma-separated values,
+    # matching the frontend's Math.max behavior in add-item.tsx).
     occasion = tags.get("occasion_tag")
     if occasion:
-        formality_score = FORMALITY_MAP.get(occasion, 3)
-        if occasion not in FORMALITY_MAP:
-            logger.info("FALLBACK: occasion=%r not in FORMALITY_MAP, using formality=3", occasion)
+        scores = [FORMALITY_MAP.get(o.strip(), 3) for o in occasion.split(",")]
+        formality_score = max(scores)
     else:
         formality_score = 3
         logger.info("FALLBACK: occasion_tag is None, using formality=3")

@@ -7,6 +7,7 @@ from app.database import SessionLocal, get_db
 from app.matching_service import complete_outfit, suggest_matches
 from app.models import ClothingItem
 from app.pair_cache import invalidate_item
+from app.routers.tagging import score_to_formality_label
 from app.schemas import ClothingItemCreate, ClothingItemUpdate, ClothingItemResponse
 from app.style_embeddings import compute_and_store_embedding
 
@@ -39,6 +40,7 @@ def list_items(
 @router.post("/", response_model=ClothingItemResponse, status_code=201)
 def create_item(item: ClothingItemCreate, db: Session = Depends(get_db)):
     db_item = ClothingItem(**item.model_dump())
+    db_item.formality = score_to_formality_label(db_item.formality_score)
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
@@ -74,6 +76,9 @@ def update_item(item_id: int, updates: ClothingItemUpdate, db: Session = Depends
         raise HTTPException(status_code=404, detail="Item not found")
     for key, value in updates.model_dump(exclude_unset=True).items():
         setattr(item, key, value)
+    # Always re-derive formality from score so the two never drift
+    # regardless of which path set formality_score (AI, manual, or edit).
+    item.formality = score_to_formality_label(item.formality_score)
     # Colour/category/season edits change how this item scores against
     # everything else, so its cached pairs have to go.
     invalidate_item(db, item_id)

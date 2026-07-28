@@ -46,8 +46,8 @@ StyleMate/
 
 "I have a closet full of clothes but nothing to wear." StyleMate eliminates outfit decision paralysis by:
 
-1. **Cataloging** your wardrobe via photo with AI auto-tagging
-2. **Suggesting outfits** using color harmony, style embeddings, body-type rules, and ML
+1. **Cataloging** your wardrobe via photo with AI auto-tagging (local FashionCLIP — free, no API calls)
+2. **Suggesting outfits** using a 9-signal scoring engine: color harmony, style embeddings, hard rules, fabric, fit, season, style tags, silhouette balance, embellishment coordination
 3. **Virtual try-on** — see how outfits look on your body without wearing them
 4. **Calendar planning** — lock outfits to specific dates and occasions
 5. **Gap detection** — know what's missing from your wardrobe with shopping links
