@@ -57,15 +57,43 @@ SYSTEM_PROMPT = (
 )
 
 CANDIDATE_LABELS = {
-    "category": ["top", "bottom", "kurti", "dress", "outerwear", "footwear", "accessory"],
+    "category": [
+        "top",
+        "bottom",
+        "kurti",
+        "dress",
+        "outerwear",
+        "footwear",
+        "accessory",
+    ],
     "pattern": ["solid", "striped", "printed", "checked"],
     "dominant_color": [
-        "black", "white", "red", "blue", "navy", "green", "yellow",
-        "orange", "pink", "purple", "brown", "grey", "beige",
+        "black",
+        "white",
+        "red",
+        "blue",
+        "navy",
+        "green",
+        "yellow",
+        "orange",
+        "pink",
+        "purple",
+        "brown",
+        "grey",
+        "beige",
     ],
     "occasion_tag": ["casual", "office", "ethnic", "party", "formal", "loungewear"],
     "season": ["spring", "summer", "fall", "winter", "all-season"],
-    "fabric_type": ["cotton", "denim", "silk", "wool", "leather", "linen", "knit", "synthetic"],
+    "fabric_type": [
+        "cotton",
+        "denim",
+        "silk",
+        "wool",
+        "leather",
+        "linen",
+        "knit",
+        "synthetic",
+    ],
     "fit_type": ["slim", "regular", "oversized", "loose"],
     "sleeve_length": ["sleeveless", "short", "three_quarter", "long", "not_applicable"],
 }
@@ -78,9 +106,21 @@ _SUBCATEGORY_DISPLAY_NAMES: dict[str, str] = {
 }
 
 STYLE_TAG_CANDIDATES: list[str] = [
-    "belted", "wrap_style", "structured", "flowy", "cropped",
-    "high_waisted", "fitted", "a_line", "v_neck", "empire_waist",
-    "wide_leg", "asymmetric", "peplum", "ruffled", "scoop_neck",
+    "belted",
+    "wrap_style",
+    "structured",
+    "flowy",
+    "cropped",
+    "high_waisted",
+    "fitted",
+    "a_line",
+    "v_neck",
+    "empire_waist",
+    "wide_leg",
+    "asymmetric",
+    "peplum",
+    "ruffled",
+    "scoop_neck",
 ]
 
 # NOTE: This map is duplicated in app/app/(tabs)/add-item.tsx:31 (TypeScript).
@@ -180,7 +220,9 @@ def _call_vision_api(image_url: str) -> str:
     }
 
     with httpx.Client(timeout=60.0) as client:
-        resp = call_with_retry(lambda: client.post(api_url, json=payload, headers=headers))
+        resp = call_with_retry(
+            lambda: client.post(api_url, json=payload, headers=headers)
+        )
         resp.raise_for_status()
         data = resp.json()
         return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -230,7 +272,9 @@ def _tag_item_vision_api(image_url: str) -> dict:
             detail=f"Gemini API error: {exc.response.status_code}",
         )
     except Exception as exc:
-        logger.error("AI tagging failed for provider=%s: %s", GEMINI_API_URL, exc, exc_info=True)
+        logger.error(
+            "AI tagging failed for provider=%s: %s", GEMINI_API_URL, exc, exc_info=True
+        )
         raise HTTPException(status_code=500, detail=f"AI tagging failed: {exc}")
 
     from app.style_embeddings import CONFIDENCE_THRESHOLD
@@ -266,27 +310,29 @@ def _tag_item_vision_api(image_url: str) -> dict:
     needs_review["formality_score"] = False
 
     result = {**tags, "_confidence": confidence, "_needs_review": needs_review}
-    logger.info("Gemini tags: %s", {k: v for k, v in tags.items() if k != "_confidence"})
+    logger.info(
+        "Gemini tags: %s", {k: v for k, v in tags.items() if k != "_confidence"}
+    )
     return result
 
 
 def _tag_item_fashion_clip(image_url: str) -> dict:
+    from app.fashion_taxonomy import (
+        EMBELLISHMENT_DISPLAY,
+        EMBELLISHMENT_NEGATIVE_TEMPLATE,
+        EMBELLISHMENT_POSITIVE_TEMPLATE,
+        EMBELLISHMENT_THRESHOLD,
+        EMBELLISHMENTS,
+        GARMENT_LENGTHS,
+        get_group_labels,
+        get_group_names,
+        get_subcategory_labels,
+    )
     from app.style_embeddings import (
         CONFIDENCE_THRESHOLD,
         classify_target_gender,
         zero_shot_binary_check,
         zero_shot_classify,
-    )
-    from app.fashion_taxonomy import (
-        EMBELLISHMENT_NEGATIVE_TEMPLATE,
-        EMBELLISHMENT_POSITIVE_TEMPLATE,
-        EMBELLISHMENT_THRESHOLD,
-        EMBELLISHMENTS,
-        EMBELLISHMENT_DISPLAY,
-        GARMENT_LENGTHS,
-        get_group_labels,
-        get_group_names,
-        get_subcategory_labels,
     )
 
     tags: dict[str, str | int | None] = {}
@@ -306,7 +352,10 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
                 needs_review[field] = False
             logger.info(
                 "FashionCLIP %s: %s (%.2f) needs_review=%s",
-                field, label, conf, needs_review[field],
+                field,
+                label,
+                conf,
+                needs_review[field],
             )
         except Exception as exc:
             logger.warning("FashionCLIP field=%s failed: %s", field, exc)
@@ -351,7 +400,10 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
                     needs_review["subcategory"] = False
                 logger.info(
                     "FashionCLIP subcategory: %s (group=%s, %.2f) needs_review=%s",
-                    sub_label, group, sub_conf, needs_review["subcategory"],
+                    sub_label,
+                    group,
+                    sub_conf,
+                    needs_review["subcategory"],
                 )
         except Exception as exc:
             logger.warning("FashionCLIP subcategory failed: %s", exc)
@@ -372,7 +424,10 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
             pos = EMBELLISHMENT_POSITIVE_TEMPLATE.format(phrase=phrase)
             neg = EMBELLISHMENT_NEGATIVE_TEMPLATE.format(phrase=phrase)
             present, score = zero_shot_binary_check(
-                image_url, pos, neg, threshold=EMBELLISHMENT_THRESHOLD,
+                image_url,
+                pos,
+                neg,
+                threshold=EMBELLISHMENT_THRESHOLD,
             )
             if present:
                 matched_embellishments.append(emb)
@@ -399,7 +454,9 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
             needs_review["garment_length"] = False
         logger.info(
             "FashionCLIP garment_length: %s (%.2f) needs_review=%s",
-            gl_label, gl_conf, needs_review["garment_length"],
+            gl_label,
+            gl_conf,
+            needs_review["garment_length"],
         )
     except Exception as exc:
         logger.warning("FashionCLIP garment_length failed: %s", exc)
@@ -411,7 +468,9 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     # Denim colour refinement: denim is inherently blue/navy, never black.
     if tags.get("fabric_type") == "denim" and tags.get("dominant_color") == "black":
         tags["dominant_color"] = "navy"
-        confidence["dominant_color"] = min(confidence.get("dominant_color", 0.0) + 0.03, 1.0)
+        confidence["dominant_color"] = min(
+            confidence.get("dominant_color", 0.0) + 0.03, 1.0
+        )
         needs_review["dominant_color"] = False
         logger.info("Denim colour refinement: black -> navy")
 
@@ -419,19 +478,27 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     # centre of the photo is dark, flag it for review.  This catches
     # the common case where a dark garment on a light background fools
     # the model into seeing the background as the dominant colour.
-    if tags.get("dominant_color") == "white" and confidence.get("dominant_color", 1.0) < 0.35:
+    if (
+        tags.get("dominant_color") == "white"
+        and confidence.get("dominant_color", 1.0) < 0.35
+    ):
         from app.style_embeddings import _center_luminance
+
         try:
             lum = _center_luminance(image_url)
             if lum < 100:  # centre is significantly darker than white
                 needs_review["dominant_color"] = True
-                logger.info("Color sanity: white prediction over dark centre (lum=%.1f) -> review", lum)
+                logger.info(
+                    "Color sanity: white prediction over dark centre (lum=%.1f) -> review",
+                    lum,
+                )
         except Exception:
             pass
 
     # Dedicated gender classification with ambiguity handling.
     try:
         from app.style_embeddings import get_embedding
+
         image_emb = get_embedding(image_url)
         gender_label, gender_conf = classify_target_gender(image_emb)
         confidence["target_gender"] = gender_conf
@@ -443,7 +510,9 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
             needs_review["target_gender"] = False
         logger.info(
             "FashionCLIP target_gender: %s (%.2f) needs_review=%s",
-            gender_label, gender_conf, needs_review["target_gender"],
+            gender_label,
+            gender_conf,
+            needs_review["target_gender"],
         )
     except Exception as exc:
         logger.warning("FashionCLIP target_gender failed: %s", exc)
