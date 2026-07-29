@@ -13,7 +13,13 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 if DATABASE_URL:
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        pool_timeout=30,
+    )
 else:
     engine = create_engine(
         "sqlite:///./stylemate.db", connect_args={"check_same_thread": False}
