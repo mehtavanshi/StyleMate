@@ -106,6 +106,7 @@ _FABRIC_CLASHES: set[frozenset[str]] = {
     frozenset(("leather", "linen")),
     frozenset(("silk", "synthetic")),
     frozenset(("knit", "leather")),
+    frozenset(("leather", "silk")),
 }
 
 _FABRIC_AFFINITY: set[frozenset[str]] = {
@@ -115,6 +116,9 @@ _FABRIC_AFFINITY: set[frozenset[str]] = {
     frozenset(("silk", "knit")),
     frozenset(("cotton", "knit")),
     frozenset(("denim", "leather")),
+    frozenset(("cotton", "silk")),
+    frozenset(("linen", "silk")),
+    frozenset(("denim", "linen")),
 }
 
 # ── Fit contrast scores (top_fit, bottom_fit) → score ──
@@ -129,6 +133,13 @@ _FIT_CONTRAST: dict[tuple[str, str], float] = {
     ("slim", "regular"):     0.65,
     ("oversized", "loose"):  0.30,
     ("loose", "oversized"):  0.30,
+    ("regular", "slim"):     0.65,
+    ("oversized", "regular"): 0.80,
+    ("loose", "regular"):    0.70,
+    ("slim", "slim"):        0.50,
+    ("regular", "regular"):  0.50,
+    ("oversized", "oversized"): 0.50,
+    ("loose", "loose"):      0.50,
 }
 
 # ── Sleeve layering bonus pairs ──
@@ -174,6 +185,7 @@ def _normalise(color: str | None) -> str:
 def _color_to_hsl(color: str | None) -> tuple[float, float, float] | None:
     """Convert a color name to (H, S, L) via HSL_MAP lookup."""
     c = _normalise(color)
+    c = c.replace("-", " ")
     if not c:
         return None
     if c in HSL_MAP:
