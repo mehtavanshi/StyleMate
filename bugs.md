@@ -68,6 +68,11 @@
 | M13 | [ ]   | `app/app/capture.tsx`            | 126-128 | `.resize({ width: MAX_LONG_EDGE_PX })` always constrains width, not the actual long edge. | Portrait images get oversized (long edge unchecked); defeats resize purpose. | **Medium** |
 | M14 | [ ]   | `app/app/(tabs)/wardrobe.tsx`    | 69, 71, 103-109 | Category & gender filter chips use `Set<string>` allowing multi-selection instead of single-select. | Users can accidentally select multiple categories/genders, contrary to expected filter behavior. | **Medium** |
 | M17 | [ ]   | `app/app/style-match.tsx`        | 178-191 | All category sections render regardless of selected item type or wardrobe count — e.g. "Matching Tops" shown even when item is a top. | Cluttered UI with irrelevant sections; users see empty categories. | **Medium** |
+| M18 | [ ]   | `app/capsule.tsx`                | 37      | Capsule default is 20 (`useState(20)`) but user wants 10.                                                                         | Users get larger than desired capsule by default.                   | **Medium** |
+| M19 | [ ]   | `app/app/(tabs)/index.tsx`       | 407-422 | Upcoming section shows only date number as plain text instead of a merged outfit image (top+bottom+footwear+accessories).          | Users can't see what outfit is upcoming — just a date.              | **Medium** |
+| M20 | [ ]   | `app/app/(tabs)/wardrobe.tsx`    | —       | Gap between wardrobe title and search bar; color inconsistencies throughout the screen.                                           | Visual polish issues in wardrobe UI.                                | **Medium** |
+| M21 | [ ]   | `app/app/(tabs)/add-item.tsx` + server | — | Adding items is slow — upload → AI tagging → save roundtrip is slow. Embedding computation happens async after creation. | Poor UX; users wait too long after adding an item.                  | **Medium** |
+| M22 | [ ]   | `app/app/(tabs)/calendar.tsx`    | —       | Calendar shows only dots/dates with no outfit images on dates. User wants outfit images displayed on calendar dates.              | Calendar is not visually informative; user can't see outfits at a glance. | **Medium** |
 
 ## Low
 
@@ -76,6 +81,7 @@
 | L11 | [ ]   | `app/app/(tabs)/index.tsx`       | 144-153 | Avatar press shows Alert instead of navigating to a proper screen; no back button.        | Users can't navigate to a profile/settings page with back support.  | **Low**  |
 | L12 | [ ]   | `app/app/(tabs)/wardrobe.tsx`    | 209-210 | Odd item count leaves last row item without `columnWrapperStyle` spacing (`marginBottom`). | Last item in odd-count grid appears visually disconnected from the row above it. | **Low**  |
 | L13 | [ ]   | `app/app/(tabs)/calendar.tsx`    | 411-487 | Outfit suggestions in bottom sheet use horizontal FlatList that doesn't work properly; should be vertical scroll with 2 items per row. | Users can't browse outfit suggestions — horizontal scroll broken/unintuitive. | **Low**  |
+| L14 | [ ]   | `app/app/(tabs)/outfit-suggestions.tsx` | — | UI gap issues; like/dislike button UX needs improvement. | Visual polish and interaction quality issues. | **Low**  |
 
 ---
 
@@ -85,6 +91,6 @@
 | ------------ | -----------------------------: |
 | **Critical** |                              1 |
 | **High**     |                              6 |
-| **Medium**   |                             17 |
-| **Low**      |                             13 |
-| **Total**    | **37 Unique Findings (28 Backend + 9 Frontend)** |
+| **Medium**   |                             22 |
+| **Low**      |                             14 |
+| **Total**    | **43 Unique Findings (28 Backend + 15 Frontend)** |

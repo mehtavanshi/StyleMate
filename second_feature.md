@@ -124,3 +124,22 @@ ICE Score = **Impact × Confidence × Ease**
 | Calendar           |        5 |
 | Wardrobe           |        4 |
 | Capsule Wardrobe   |        1 |
+
+---
+
+# SCALABILITY ISSUES (Works now, breaks with more users)
+
+| #   | Issue                                                                                                                          | File:Line                                 | Impact                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- | ------------------------ |
+| S1  | SQLite single-writer bottleneck — `check_same_thread=False` allows one concurrent write at a time. With 5+ users, writes queue and time out. | `server/app/database.py:24-26`            | 🔴 Critical at scale    |
+| S2  | No auth system — hardcoded `DEMO_USER_ID=1` everywhere. No JWT, sessions, or multi-user support. Cannot go live without auth.  | Throughout codebase (constants.ts, api.ts, all routers) | 🔴 Critical at scale    |
+| S3  | Thread-based background jobs instead of queue — `Thread(target=...).start()` for embeddings and photo cleanup. Threads don't scale across processes; lost on restart. | `server/app/main.py:96,150`               | 🟡 High                  |
+| S4  | No pagination on wardrobe/items API — `GET /clothing/` fetches ALL items. With 500+ items, response size and query time grow linearly. | `server/app/routers/clothing.py`          | 🟡 High                  |
+| S5  | In-memory caches don't work across instances — TTLCache in weather, try-on, shopping services. Need Redis for multi-instance.  | Multiple server files                     | 🟡 High                  |
+| S6  | Synchronous Gemini calls block workers — `packing_service.py:110-119`, `nlp_router.py` call Gemini synchronously. A slow response blocks the worker for up to 60s. | `server/app/services/packing_service.py`, `nlp_router.py` | 🟡 High                  |
+| S7  | FashionCLIP on CPU is slow at scale — ~2–5s per image on CPU, loaded lazily. 50 concurrent uploads will pile up.               | `server/app/style_embeddings.py`          | 🟡 High                  |
+| S8  | Embeddings computed after request returns — New items get neutral scores until background thread finishes. Users see bad recs temporarily. | `server/app/style_embeddings.py:377-408`  | 🟡 Medium                |
+| S9  | CORS wide open — `allow_origins=["*"]` at main.py:55. Acceptable for dev, but security risk in production.                     | `server/app/main.py:55`                   | 🟡 Medium                |
+| S10 | No API rate limiting — Any endpoint can be hammered. Only try-on has per-user limiting.                                        | `server/app/main.py` (missing)            | 🟡 Medium                |
+| S11 | No client-side file size check before upload — Server rejects >10MB but upload already consumed bandwidth. User waits then gets error. | `app/(tabs)/capture.tsx` and add-item flow | 🟢 Low                   |
+| S12 | No request timeout handling on client — `api.ts:53-64` has no timeout. A hanging server means the app hangs forever.          | `app/lib/api.ts:53-64`                    | 🟡 Medium                |
