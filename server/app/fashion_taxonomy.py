@@ -76,7 +76,7 @@ EMBELLISHMENT_DISPLAY: dict[str, str] = {
     "beads": "bead embellishment",
 }
 
-EMBELLISHMENT_THRESHOLD: float = 0.15
+EMBELLISHMENT_THRESHOLD: float = 0.24
 
 EMBELLISHMENT_POSITIVE_TEMPLATE = "a photo of a garment with {phrase}"
 EMBELLISHMENT_NEGATIVE_TEMPLATE = "a photo of a plain garment with no {phrase}"

@@ -104,7 +104,17 @@ export default function AddItemScreen() {
       applyTags(tags);
       setStep("form");
     } catch (e: any) {
-      setErrorMsg(e.message || "Failed to analyze image");
+      let msg = e.message || "Failed to analyze image";
+      try {
+        const parsed = JSON.parse(msg.replace(/^API error \d+: /, ""));
+        if (parsed.error === "no_garment_detected") {
+          setErrorMsg(parsed.message);
+        } else {
+          setErrorMsg(parsed.message || msg);
+        }
+      } catch {
+        setErrorMsg(msg);
+      }
       setStep("error");
     }
   };
@@ -275,23 +285,26 @@ export default function AddItemScreen() {
 
   // Error step
   if (step === "error") {
+    const isGarmentError = errorMsg.includes("couldn't detect a clothing item");
     return (
       <SafeAreaView style={{ flex: 1 }}>
         <View style={styles.container}>
           <View style={styles.loadingContent}>
-            <Text style={styles.errorTitle}>Tagging Failed</Text>
-            <Text style={styles.errorDetail}>{errorMsg || "Failed to analyze image."}</Text>
+            <Text style={styles.errorTitle}>
+              {isGarmentError ? "No Garment Detected" : "Tagging Failed"}
+            </Text>
+            <Text style={styles.errorDetail}>
+              {isGarmentError
+                ? "We couldn't detect a clothing item in this photo. Make sure the image shows a single garment on a plain background with good lighting."
+                : errorMsg || "Failed to analyze image."}
+            </Text>
             <TouchableOpacity
               style={styles.button}
               onPress={() => {
-                if (imageUrl) {
-                  setStep("form");
-                } else {
-                  handleNavigateToCapture();
-                }
+                handleNavigateToCapture();
               }}
             >
-              <Text style={styles.buttonText}>Try Again</Text>
+              <Text style={styles.buttonText}>Retake Photo</Text>
             </TouchableOpacity>
           </View>
         </View>

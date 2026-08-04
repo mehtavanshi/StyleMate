@@ -234,28 +234,30 @@ def zero_shot_classify(
     return candidate_labels[best_idx], sims[best_idx]
 
 
-STYLE_TAG_THRESHOLD: float = 0.12
+STYLE_TAG_THRESHOLD: float = 0.24
 
 
 def zero_shot_classify_multi(
     image_path_or_url: str,
     candidate_labels: list[str],
     threshold: float = STYLE_TAG_THRESHOLD,
-) -> list[str]:
+) -> tuple[list[str], float]:
     """Multi-label zero-shot classification using FashionCLIP.
 
     Unlike ``zero_shot_classify`` which returns only the single best label,
     this function returns **all** labels whose cosine similarity exceeds
-    ``threshold``.  Useful for style-tag detection where a garment can
+    ``threshold`` along with the mean confidence of matched labels.
+    Useful for style-tag detection where a garment can
     have multiple attributes (e.g. both ``belted`` and ``structured``).
 
     Args:
         image_path_or_url: Local path or HTTP(S) URL to the image.
         candidate_labels: Style-tag labels to evaluate.
-        threshold: Minimum similarity to keep a label (default 0.12).
+        threshold: Minimum similarity to keep a label (default 0.24).
 
     Returns:
-        List of matching labels (may be empty).
+        (matched_labels, mean_confidence) where ``mean_confidence`` is
+        the average similarity of all matched labels (0.0 if none matched).
     """
     import torch
 
@@ -263,6 +265,7 @@ def zero_shot_classify_multi(
     image_vec = torch.tensor(image_emb, dtype=torch.float32)
 
     matches: list[str] = []
+    match_scores: list[float] = []
     for label in candidate_labels:
         text_vec = torch.tensor(
             get_ensembled_label_embedding(label), dtype=torch.float32
@@ -270,8 +273,58 @@ def zero_shot_classify_multi(
         sim = float(torch.dot(image_vec, text_vec).item())
         if sim >= threshold:
             matches.append(label)
+            match_scores.append(sim)
 
-    return matches
+    avg_conf = (sum(match_scores) / len(match_scores)) if match_scores else 0.0
+    return matches, avg_conf
+
+
+GARMENT_CANDIDATE_LABELS = [
+    "garment",
+    "non-clothing",
+]
+
+GARMENT_MARGIN_THRESHOLD: float = 0.015
+
+
+def detect_garment(
+    image_path_or_url: str,
+) -> tuple[bool, float]:
+    """Detect whether an image contains a garment using FashionCLIP zero-shot classification.
+
+    Uses three candidate labels and checks that the clothing label is the top match
+    with a sufficient margin over the second-best label.
+
+    Args:
+        image_path_or_url: Local path or HTTP(S) URL to the image.
+
+    Returns:
+        (is_garment, confidence) where ``is_garment`` is True only if the
+        clothing label wins with a margin >= ``GARMENT_MARGIN_THRESHOLD``.
+    """
+    import torch
+
+    image_emb = get_embedding(image_path_or_url)
+    image_vec = torch.tensor(image_emb, dtype=torch.float32)
+
+    scores: list[tuple[str, float]] = []
+    for label in GARMENT_CANDIDATE_LABELS:
+        text_vec = torch.tensor(
+            get_ensembled_label_embedding(label), dtype=torch.float32
+        )
+        sim = float(torch.dot(image_vec, text_vec).item())
+        scores.append((label, sim))
+
+    scores.sort(key=lambda x: x[1], reverse=True)
+    top_label, top_score = scores[0]
+    second_score = scores[1][1] if len(scores) > 1 else 0.0
+    margin = top_score - second_score
+
+    is_garment = (
+        top_label == "garment"
+        and margin >= GARMENT_MARGIN_THRESHOLD
+    )
+    return is_garment, top_score
 
 
 def zero_shot_binary_check(

@@ -287,7 +287,7 @@ def _tag_item_vision_api(image_url: str) -> dict:
     needs_review: dict[str, bool] = {}
 
     for field in raw_tags:
-        conf = float(raw_conf.get(field, 1.0))
+        conf = float(raw_conf.get(field, 0.0))
         confidence[field] = conf
         if conf < CONFIDENCE_THRESHOLD:
             tags[field] = None
@@ -331,9 +331,23 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     from app.style_embeddings import (
         CONFIDENCE_THRESHOLD,
         classify_target_gender,
+        detect_garment,
         zero_shot_binary_check,
         zero_shot_classify,
     )
+
+    is_garment, _ = detect_garment(image_url)
+    if not is_garment:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "no_garment_detected",
+                "message": (
+                    "We couldn't detect a clothing item in this photo. "
+                    "Try a clear photo of a single garment on a plain background."
+                ),
+            },
+        )
 
     tags: dict[str, str | int | None] = {}
     confidence: dict[str, float] = {}
@@ -419,6 +433,7 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     # ── Embellishments (multi-label binary checks) ──
     try:
         matched_embellishments: list[str] = []
+        emb_scores: list[float] = []
         for emb in EMBELLISHMENTS:
             phrase = EMBELLISHMENT_DISPLAY[emb]
             pos = EMBELLISHMENT_POSITIVE_TEMPLATE.format(phrase=phrase)
@@ -431,9 +446,11 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
             )
             if present:
                 matched_embellishments.append(emb)
+                emb_scores.append(score)
         tags["embellishments"] = json.dumps(matched_embellishments)
-        confidence["embellishments"] = 1.0
-        needs_review["embellishments"] = False
+        emb_conf = (sum(emb_scores) / len(emb_scores)) if emb_scores else 0.0
+        confidence["embellishments"] = emb_conf
+        needs_review["embellishments"] = emb_conf < CONFIDENCE_THRESHOLD
         logger.info("FashionCLIP embellishments: %s", matched_embellishments)
     except Exception as exc:
         logger.warning("FashionCLIP embellishments failed: %s", exc)
@@ -480,7 +497,7 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     # the model into seeing the background as the dominant colour.
     if (
         tags.get("dominant_color") == "white"
-        and confidence.get("dominant_color", 1.0) < 0.35
+        and confidence.get("dominant_color", 0.0) < 0.35
     ):
         from app.style_embeddings import _center_luminance
 
@@ -525,10 +542,10 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     try:
         from app.style_embeddings import zero_shot_classify_multi
 
-        matched_tags = zero_shot_classify_multi(image_url, STYLE_TAG_CANDIDATES)
+        matched_tags, tag_conf = zero_shot_classify_multi(image_url, STYLE_TAG_CANDIDATES)
         tags["style_tags"] = matched_tags
-        confidence["style_tags"] = 1.0
-        needs_review["style_tags"] = False
+        confidence["style_tags"] = tag_conf
+        needs_review["style_tags"] = tag_conf < CONFIDENCE_THRESHOLD
         logger.info("FashionCLIP style_tags: %s", matched_tags)
     except Exception as exc:
         logger.warning("FashionCLIP style_tags failed: %s", exc)

@@ -284,6 +284,7 @@ export interface TagResult {
   formality_score: number | null;
   _confidence: Record<string, number>;
   _needs_review: Record<string, boolean>;
+  _error?: string;
 }
 
 export interface OutfitItem {
