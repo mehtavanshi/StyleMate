@@ -32,6 +32,11 @@ alembic
 # Supabase client (file storage)
 supabase
 
+# Auth
+bcrypt
+email-validator
+PyJWT
+
 # Optional: S3 storage (set STORAGE_PROVIDER=s3)
 # boto3
 

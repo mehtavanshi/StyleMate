@@ -1,30 +1,15 @@
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from datetime import datetime, timezone
 
+from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.models import CalendarEntry, TryOnResult, User
-from app.schemas import BodyTypeIn, ConsentIn, ConsentResponse, PhotoUrlIn, UserCreate, UserResponse
+from app.schemas import BodyTypeIn, ConsentIn, ConsentResponse, PhotoUrlIn, UserResponse
 from app.storage import get_storage_provider
 
 router = APIRouter(prefix="/users", tags=["users"])
-
-
-def _get_current_user_id(x_user_id: int = Header(alias="X-User-ID", default=0)) -> int:
-    return x_user_id
-
-
-def _get_user_or_404(user_id: int, db: Session) -> User:
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-
-def _check_owner(user_id: int, current_user_id: int) -> None:
-    if current_user_id and current_user_id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
 
 
 def _touch_activity(user: User, db: Session) -> None:
@@ -32,71 +17,11 @@ def _touch_activity(user: User, db: Session) -> None:
     db.commit()
 
 
-@router.get("/", response_model=list[UserResponse])
-def list_users(db: Session = Depends(get_db)):
-    return db.query(User).order_by(User.created_at.desc()).all()
-
-
-@router.post("/", response_model=UserResponse, status_code=201)
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == user.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    db_user = User(**user.model_dump())
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
-
-
-@router.get("/{user_id}", response_model=UserResponse)
-def get_user(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(_get_current_user_id),
-):
-    _check_owner(user_id, current_user_id)
-    user = _get_user_or_404(user_id, db)
-    _touch_activity(user, db)
-    return user
-
-
-@router.post("/{user_id}/body-type", response_model=UserResponse)
-def set_body_type(
-    user_id: int,
-    body_type_in: BodyTypeIn,
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(_get_current_user_id),
-):
-    _check_owner(user_id, current_user_id)
-    user = _get_user_or_404(user_id, db)
-    user.body_type = body_type_in.body_type
-    _touch_activity(user, db)
-    # score_pair weights style tags by body type, so every cached pair for this
-    # user is now priced against the wrong body type.
-    from app.pair_cache import invalidate_user
-
-    invalidate_user(db, user_id)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-@router.get("/{user_id}/consent", response_model=ConsentResponse)
-def get_consent(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user_id: int = Depends(_get_current_user_id),
-):
-    _check_owner(user_id, current_user_id)
-    user = _get_user_or_404(user_id, db)
-    _touch_activity(user, db)
-
+def _consent_response(user: User) -> ConsentResponse:
     signed_url = None
     if user.photo_url:
         provider = get_storage_provider()
         signed_url = provider.get_signed_url(user.photo_url)
-
     return ConsentResponse(
         photo_consent=bool(user.photo_consent),
         consent_given_at=user.consent_given_at,
@@ -105,73 +30,89 @@ def get_consent(
     )
 
 
-@router.post("/{user_id}/consent", response_model=ConsentResponse)
+@router.get("/me", response_model=UserResponse)
+def get_me(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _touch_activity(current_user, db)
+    return current_user
+
+
+@router.post("/me/body-type", response_model=UserResponse)
+def set_body_type(
+    body_type_in: BodyTypeIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.body_type = body_type_in.body_type
+    _touch_activity(current_user, db)
+    # score_pair weights style tags by body type, so every cached pair for this
+    # user is now priced against the wrong body type.
+    from app.pair_cache import invalidate_user
+
+    invalidate_user(db, current_user.id)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.get("/me/consent", response_model=ConsentResponse)
+def get_consent(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _touch_activity(current_user, db)
+    return _consent_response(current_user)
+
+
+@router.post("/me/consent", response_model=ConsentResponse)
 def give_consent(
-    user_id: int,
     consent_in: ConsentIn,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(_get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ):
-    _check_owner(user_id, current_user_id)
-    user = _get_user_or_404(user_id, db)
-    user.photo_consent = True
-    user.consent_given_at = datetime.now(timezone.utc)
-    user.consent_version = consent_in.consent_version
-    _touch_activity(user, db)
+    current_user.photo_consent = True
+    current_user.consent_given_at = datetime.now(timezone.utc)
+    current_user.consent_version = consent_in.consent_version
+    _touch_activity(current_user, db)
     db.commit()
-    db.refresh(user)
-
-    signed_url = None
-    if user.photo_url:
-        provider = get_storage_provider()
-        signed_url = provider.get_signed_url(user.photo_url)
-
-    return ConsentResponse(
-        photo_consent=True,
-        consent_given_at=user.consent_given_at,
-        consent_version=user.consent_version,
-        photo_url=signed_url,
-    )
+    db.refresh(current_user)
+    return _consent_response(current_user)
 
 
-@router.put("/{user_id}/photo", response_model=UserResponse)
+@router.put("/me/photo", response_model=UserResponse)
 def set_user_photo(
-    user_id: int,
     photo_in: PhotoUrlIn,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(_get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ):
-    _check_owner(user_id, current_user_id)
-    user = _get_user_or_404(user_id, db)
-    user.photo_url = photo_in.image_url
-    user.photo_storage_key = photo_in.image_url
-    _touch_activity(user, db)
+    current_user.photo_url = photo_in.image_url
+    current_user.photo_storage_key = photo_in.image_url
+    _touch_activity(current_user, db)
     db.commit()
-    db.refresh(user)
-    return user
+    db.refresh(current_user)
+    return current_user
 
 
-@router.delete("/{user_id}/photo", status_code=204)
+@router.delete("/me/photo", status_code=204)
 def delete_user_photo(
-    user_id: int,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(_get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ):
-    _check_owner(user_id, current_user_id)
-    user = _get_user_or_404(user_id, db)
-
-    if not user.photo_url:
+    user_id = current_user.id
+    if not current_user.photo_url:
         return
 
     provider = get_storage_provider()
-    provider.delete_file(user.photo_url)
+    provider.delete_file(current_user.photo_url)
 
     db.query(CalendarEntry).filter(
         CalendarEntry.user_id == user_id,
         CalendarEntry.try_on_result_id.isnot(None),
     ).update({CalendarEntry.try_on_result_id: None})
     db.query(TryOnResult).filter(TryOnResult.user_id == user_id).delete()
-    user.photo_url = None
-    user.photo_storage_key = None
-    _touch_activity(user, db)
+    current_user.photo_url = None
+    current_user.photo_storage_key = None
+    _touch_activity(current_user, db)
     db.commit()

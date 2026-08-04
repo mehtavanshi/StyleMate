@@ -14,7 +14,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useForm } from "react-hook-form";
 import { router, useNavigation } from "expo-router";
 
-import { DEMO_USER_ID, usersApi } from "../lib/api";
+import { usersApi } from "../lib/api";
 import {
   BODY_TYPE_ICONS,
   AppleIcon,
@@ -111,7 +111,7 @@ export default function OnboardingScreen() {
     setError(null);
     try {
       const bodyType = scoreBodyType(data);
-      await usersApi.setBodyType(DEMO_USER_ID, bodyType);
+      await usersApi.setBodyType(bodyType);
       await AsyncStorage.setItem(ONBOARDING_FLAG, "1");
       router.replace("/(tabs)");
     } catch (e: any) {

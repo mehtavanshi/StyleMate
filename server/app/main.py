@@ -17,10 +17,11 @@ from sqlalchemy.orm import Session
 
 from app.database import Base, SessionLocal, engine, get_db
 from app import models  # noqa: F401
+from app.auth.dependencies import get_current_user
 from app.config import load_body_type_rules
 from app.models import User, ClothingItem
 from app.celery_app import celery_app  # noqa: F401
-from app.routers import users, clothing, upload, tagging, outfits, calendar, shopping, style_match, shop_matches, style_advice, tryon, packing, fashion_rating
+from app.routers import auth, users, clothing, upload, tagging, outfits, calendar, shopping, style_match, shop_matches, style_advice, tryon, packing, fashion_rating
 from app.schemas import ClothingItemCreate, ClothingItemResponse
 from app.storage import get_storage_provider
 from app.style_embeddings import compute_and_store_embedding
@@ -38,16 +39,6 @@ if engine.dialect.name == "sqlite":
 
 load_body_type_rules()
 
-# Ensure demo user exists (id=1) so the app works out of the box.
-_db = SessionLocal()
-try:
-    if not _db.query(User).filter(User.id == 1).first():
-        _db.add(User(id=1, name="Demo User", email="demo@stylemate.app"))
-        _db.commit()
-        logger.info("Created demo user (id=1)")
-finally:
-    _db.close()
-
 app = FastAPI(title="StyleMate API")
 
 app.add_middleware(
@@ -58,20 +49,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(users.router)
-app.include_router(clothing.router)
-app.include_router(upload.router)
-app.include_router(tagging.router)
-app.include_router(outfits.router)
-app.include_router(calendar.router)
-app.include_router(shopping.router)
-app.include_router(style_match.router)
-app.include_router(shop_matches.router)
-app.include_router(style_advice.router)
-app.include_router(tryon.router)
-app.include_router(calendar.analytics_router)
-app.include_router(packing.router)
-app.include_router(fashion_rating.router)
+# /auth/* is public (register/login/refresh/logout).
+app.include_router(auth.router)
+
+# Everything else requires a valid JWT access token. /docs, /redoc, /health
+# and the /uploads static mount are served by FastAPI directly and remain open.
+_AUTH = [Depends(get_current_user)]
+
+app.include_router(users.router, dependencies=_AUTH)
+app.include_router(clothing.router, dependencies=_AUTH)
+app.include_router(upload.router, dependencies=_AUTH)
+app.include_router(tagging.router, dependencies=_AUTH)
+app.include_router(outfits.router, dependencies=_AUTH)
+app.include_router(calendar.router, dependencies=_AUTH)
+app.include_router(shopping.router, dependencies=_AUTH)
+app.include_router(style_match.router, dependencies=_AUTH)
+app.include_router(shop_matches.router, dependencies=_AUTH)
+app.include_router(style_advice.router, dependencies=_AUTH)
+app.include_router(tryon.router, dependencies=_AUTH)
+app.include_router(calendar.analytics_router, dependencies=_AUTH)
+app.include_router(packing.router, dependencies=_AUTH)
+app.include_router(fashion_rating.router, dependencies=_AUTH)
 
 
 @app.get("/health")
@@ -80,8 +78,12 @@ def health_check():
 
 
 @app.post("/clothing-items", response_model=ClothingItemResponse, status_code=201)
-def create_clothing_item(item: ClothingItemCreate, db: Session = Depends(get_db)):
-    db_item = ClothingItem(**item.model_dump())
+def create_clothing_item(
+    item: ClothingItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    db_item = ClothingItem(**item.model_dump(), user_id=current_user.id)
     db.add(db_item)
     db.commit()
     db.refresh(db_item)

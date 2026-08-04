@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends
+import json
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.database import get_db
-from app.models import ClothingItem, OutfitFeedback
+from app.models import ClothingItem, OutfitFeedback, User
 from app.pairing_engine import OutfitSuggestion, build_capsule, suggest_outfits
 from app.schemas import OutfitFeedbackResponse, OutfitFeedbackIn
 from app.services.nlp_router import parse_query_to_params
@@ -43,14 +46,14 @@ class OutfitSuggestionsResponse(BaseModel):
 
 @router.get("/outfit-suggestions", response_model=OutfitSuggestionsResponse)
 def get_outfit_suggestions(
-    user_id: int = 1,
     occasion_tag: str | None = None,
     target_gender: str | None = None,
     limit: int = 5,
     offset: int = 0,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    result = suggest_outfits(db, user_id, occasion_tag, target_gender, limit, offset=offset)
+    result = suggest_outfits(db, current_user.id, occasion_tag, target_gender, limit, offset=offset)
     return OutfitSuggestionsResponse(
         outfits=[_to_response(r) for r in result["items"]],
         total=result["total"],
@@ -72,7 +75,6 @@ def _to_response(r: OutfitSuggestion) -> OutfitSuggestionResponse:
 class SmartOutfitIn(BaseModel):
     query: str
     limit: int = 5
-    user_id: int = 1
 
 
 class SmartOutfitResponse(BaseModel):
@@ -83,7 +85,11 @@ class SmartOutfitResponse(BaseModel):
 
 
 @router.post("/smart-outfit", response_model=SmartOutfitResponse)
-def smart_outfit(payload: SmartOutfitIn, db: Session = Depends(get_db)):
+def smart_outfit(
+    payload: SmartOutfitIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Free-text request ("interview tomorrow") → filtered outfit suggestions.
 
     Confidence reflects how much of the request we could actually pin down:
@@ -105,7 +111,7 @@ def smart_outfit(payload: SmartOutfitIn, db: Session = Depends(get_db)):
 
     result = suggest_outfits(
         db,
-        payload.user_id,
+        current_user.id,
         occasion_tag=params.get("occasion_tag"),
         target_gender=params.get("target_gender"),
         limit=payload.limit,
@@ -114,7 +120,7 @@ def smart_outfit(payload: SmartOutfitIn, db: Session = Depends(get_db)):
     # Nothing matched the parsed occasion — better to show the user's best
     # general outfits than an empty screen, so retry unfiltered.
     if not result["items"] and params.get("occasion_tag"):
-        result = suggest_outfits(db, payload.user_id, limit=payload.limit)
+        result = suggest_outfits(db, current_user.id, limit=payload.limit)
         confidence = "low"
 
     return SmartOutfitResponse(
@@ -138,8 +144,8 @@ class WeatherOutfitResponse(BaseModel):
 @router.get("/weather-outfit", response_model=WeatherOutfitResponse)
 def weather_outfit(
     city: str | None = None,
-    user_id: int = 1,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Today's pick, filtered to what suits the current temperature.
 
@@ -147,10 +153,10 @@ def weather_outfit(
     suggestion plus a message, rather than failing the request.
     """
     weather = get_weather(city)
-    items = db.query(ClothingItem).filter(ClothingItem.user_id == user_id).all()
+    items = db.query(ClothingItem).filter(ClothingItem.user_id == current_user.id).all()
 
     if weather is None:
-        result = suggest_outfits(db, user_id, limit=1)
+        result = suggest_outfits(db, current_user.id, limit=1)
         return WeatherOutfitResponse(
             weather=None,
             guidance=None,
@@ -159,7 +165,7 @@ def weather_outfit(
         )
 
     filtered = filter_items_by_weather(items, weather["temp_c"])
-    result = suggest_outfits(db, user_id, limit=1, items=filtered)
+    result = suggest_outfits(db, current_user.id, limit=1, items=filtered)
     guidance = rule_for_temp(weather["temp_c"])
 
     return WeatherOutfitResponse(
@@ -177,14 +183,17 @@ class CapsuleRequest(BaseModel):
     target_item_count: int = 20
     occasion_tag: str | None = None
     locked_item_ids: list[int] = []
-    user_id: int = 1
 
 
 @router.post("/capsule-wardrobe")
-def capsule_wardrobe(req: CapsuleRequest, db: Session = Depends(get_db)):
+def capsule_wardrobe(
+    req: CapsuleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """The N items from the wardrobe that produce the most wearable outfits."""
     return build_capsule(
-        req.user_id,
+        current_user.id,
         target_count=max(2, min(req.target_item_count, 40)),
         occasion_filter=req.occasion_tag,
         db=db,
@@ -196,11 +205,23 @@ def capsule_wardrobe(req: CapsuleRequest, db: Session = Depends(get_db)):
 def create_outfit_feedback(
     payload: OutfitFeedbackIn,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    import json
+    # Validate every item belongs to the requester before recording feedback.
+    owned = {
+        row[0]
+        for row in db.query(ClothingItem.id)
+        .filter(ClothingItem.id.in_(payload.outfit_item_ids))
+        .filter(ClothingItem.user_id == current_user.id)
+        .all()
+    }
+    if len(owned) != len(set(payload.outfit_item_ids)):
+        raise HTTPException(
+            status_code=403, detail="All outfit items must belong to you"
+        )
 
     db_feedback = OutfitFeedback(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         outfit_item_ids=json.dumps(payload.outfit_item_ids),
         liked=1 if payload.liked else 0,
     )

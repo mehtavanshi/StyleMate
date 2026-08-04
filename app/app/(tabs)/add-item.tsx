@@ -17,7 +17,7 @@ import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
 import { router, useLocalSearchParams } from "expo-router";
 
 import { BASE_URL } from "../../config/api";
-import { clothingApi, consentApi, DEMO_USER_ID, TagResult, uploadApi } from "../../lib/api";
+import { clothingApi, consentApi, TagResult, uploadApi } from "../../lib/api";
 import { resolveImageUrl } from "../../lib/constants";
 
 const CATEGORIES = ["top", "bottom", "dress", "outerwear", "footwear", "accessory"];
@@ -77,7 +77,7 @@ export default function AddItemScreen() {
 
   useEffect(() => {
     consentApi
-      .getStatus(DEMO_USER_ID)
+      .getStatus()
       .then((status) => {
         if (!status.photo_consent) {
           router.replace("/consent");

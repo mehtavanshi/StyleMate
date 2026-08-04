@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.database import get_db
-from app.models import ClothingItem
+from app.models import ClothingItem, User
 from app.shopping_service import search_all_providers
 from app.style_advisor import explain_outfit, get_style_advice
 
@@ -17,6 +18,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["style-advice"])
 
 _cache: TTLCache = TTLCache(maxsize=200, ttl=1800)
+
+
+def _check_items_owned(item_ids: list[int], user_id: int, db: Session) -> list[ClothingItem]:
+    items = (
+        db.query(ClothingItem)
+        .filter(ClothingItem.id.in_(item_ids))
+        .all()
+    )
+    if not items:
+        raise HTTPException(status_code=404, detail="No items found for those IDs")
+    if any(item.user_id != user_id for item in items):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return items
 
 
 class SuggestionWithProducts(BaseModel):
@@ -36,19 +50,17 @@ class ExplainOutfitIn(BaseModel):
 
 
 @router.post("/explain-outfit")
-def explain_outfit_endpoint(payload: ExplainOutfitIn, db: Session = Depends(get_db)):
+def explain_outfit_endpoint(
+    payload: ExplainOutfitIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Stylist-voice explanation of why an outfit works.
 
     Falls back to the pairing engine's own reason text when Gemini is
     unreachable, so the client never has to handle an empty response.
     """
-    items = (
-        db.query(ClothingItem)
-        .filter(ClothingItem.id.in_(payload.outfit_item_ids))
-        .all()
-    )
-    if not items:
-        raise HTTPException(status_code=404, detail="No items found for those IDs")
+    items = _check_items_owned(payload.outfit_item_ids, current_user.id, db)
     return {"explanation": explain_outfit(items, db)}
 
 
@@ -81,14 +93,13 @@ async def _search_one(suggestion: str, gender: str | None = None) -> list[dict[s
 async def style_advice_endpoint(
     item_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    cached = _cache.get(item_id)
+    cached = _cache.get((current_user.id, item_id))
     if cached is not None:
         return cached
 
-    item = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+    item = _check_items_owned([item_id], current_user.id, db)[0]
 
     advice = get_style_advice(item)
 

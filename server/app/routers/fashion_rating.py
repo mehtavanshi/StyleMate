@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.models import User
 from app.services.fashion_rating_service import rate_outfit_photo
@@ -11,11 +12,14 @@ router = APIRouter(prefix="/fashion-rating", tags=["fashion-rating"])
 
 class RatingRequest(BaseModel):
     image_url: str | None = None
-    user_id: int = 1
 
 
 @router.post("/rate")
-def rate_photo(req: RatingRequest, db: Session = Depends(get_db)):
+def rate_photo(
+    req: RatingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Rate an outfit photo. Falls back to the user's consented photo.
 
     Rating the stored photo requires consent to have been given — the same
@@ -23,7 +27,7 @@ def rate_photo(req: RatingRequest, db: Session = Depends(get_db)):
     """
     image_url = req.image_url
     if not image_url:
-        user = db.query(User).filter(User.id == req.user_id).first()
+        user = current_user
         if not user or not user.photo_url:
             raise HTTPException(
                 status_code=400,

@@ -12,7 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { borderRadius as br, colors, fontSize, fontWeight, shadow, spacing } from "../theme/tokens";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 
-import { consentApi, DEMO_USER_ID } from "../lib/api";
+import { consentApi } from "../lib/api";
 
 export default function ConsentScreen() {
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
@@ -27,7 +27,7 @@ export default function ConsentScreen() {
 
   const checkExisting = useCallback(async () => {
     try {
-      const status = await consentApi.getStatus(DEMO_USER_ID);
+      const status = await consentApi.getStatus();
       if (status.photo_consent) {
         router.replace((returnTo as any) || "/(tabs)");
       }
@@ -46,7 +46,7 @@ export default function ConsentScreen() {
     if (!agreed) return;
     setSubmitting(true);
     try {
-      await consentApi.giveConsent(DEMO_USER_ID);
+      await consentApi.giveConsent();
       router.replace((returnTo as any) || "/(tabs)");
     } catch (e: any) {
       // error handled silently; user can retry

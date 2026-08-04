@@ -1,4 +1,3 @@
-export const DEMO_USER_ID = 1;
 export const CURRENT_CONSENT_VERSION = "1.0";
 
 /** Resolve a photo URL that may be relative (local) or absolute (S3/GCS signed). */

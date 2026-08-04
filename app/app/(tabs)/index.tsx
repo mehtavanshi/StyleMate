@@ -32,7 +32,6 @@ import {
   ClosetGap,
   clothingApi,
   ConsentStatus,
-  DEMO_USER_ID,
   consentApi,
   outfitApi,
   OutfitSuggestion,
@@ -64,12 +63,12 @@ export default function HomeScreen() {
   const loadHomeData = useCallback(async () => {
     setOutfitLoading(true);
     try {
-      const [outfits, items, entries] = await Promise.all([
+      const [outfitsRes, items, entries] = await Promise.all([
         outfitApi.suggest({ limit: 1 }),
         clothingApi.list(),
         calendarApi.list({ start_date: new Date().toISOString().split("T")[0] }),
       ]);
-      if (outfits.length > 0) setTodaysOutfit(outfits[0]);
+      if (outfitsRes.outfits.length > 0) setTodaysOutfit(outfitsRes.outfits[0]);
       const stats: Record<string, number> = {};
       for (const item of items) {
         stats[item.category] = (stats[item.category] || 0) + 1;
@@ -107,7 +106,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     consentApi
-      .getStatus(DEMO_USER_ID)
+      .getStatus()
       .then((s) => setConsentStatus(s))
       .catch(() => {});
   }, []);
@@ -128,7 +127,7 @@ export default function HomeScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await consentApi.deletePhoto(DEMO_USER_ID);
+              await consentApi.deletePhoto();
               setConsentStatus((prev) =>
                 prev ? { ...prev, photo_url: null } : null
               );
@@ -193,7 +192,7 @@ export default function HomeScreen() {
         "photo.jpg",
         "image/jpeg",
       );
-      const updated = await consentApi.setPhoto(DEMO_USER_ID, image_url);
+      const updated = await consentApi.setPhoto(image_url);
       setConsentStatus(updated);
     } catch {
       Alert.alert("Error", "Could not update photo. Please try again.");
@@ -202,7 +201,7 @@ export default function HomeScreen() {
 
   const handleRemovePhoto = async () => {
     try {
-      await consentApi.deletePhoto(DEMO_USER_ID);
+      await consentApi.deletePhoto();
       setConsentStatus((prev) => (prev ? { ...prev, photo_url: null } : null));
     } catch {
       Alert.alert("Error", "Could not remove photo. Please try again.");
@@ -226,7 +225,7 @@ export default function HomeScreen() {
           />
           <TouchableOpacity
             style={styles.settingsBtn}
-            onPress={() => router.push("/app/settings")}
+            onPress={() => router.push("/settings")}
             accessibilityLabel="Settings"
           >
             <Settings size={22} color={colors.accent} strokeWidth={1.5} />

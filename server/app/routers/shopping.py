@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.database import get_db
+from app.models import User
 from app.pairing_engine import find_gaps, build_search_query
 from app.schemas import ClosetGapResponse
 from app.shopping_service import Product, get_shopping_providers
@@ -33,9 +35,9 @@ class ShoppingGroupResponse(BaseModel):
 
 @router.get("/closet-gaps", response_model=list[ClosetGapResponse])
 def closet_gaps(
-    user_id: int = 1,
     target_gender: str | None = Query(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """What the wardrobe is missing, with a ready-made shopping query per gap.
 
@@ -50,16 +52,16 @@ def closet_gaps(
             search_query=(query := build_search_query(gap, db, target_gender=target_gender)),
             shopping_links=_build_shop_links(query),
         )
-        for gap in find_gaps(user_id, db)
+        for gap in find_gaps(current_user.id, db)
     ]
 
 
 @router.get("/shopping-suggestions", response_model=list[ShoppingGroupResponse])
 async def shopping_suggestions(
-    user_id: int = Query(..., description="User whose wardrobe gaps to fill"),
     target_gender: str | None = Query(None),
     occasion_tag: str | None = Query(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Detect wardrobe gaps, build a search query per gap, and fetch products.
 
@@ -67,7 +69,7 @@ async def shopping_suggestions(
     (`build_search_query`) run locally; only the final provider search hits
     an external API, and that is limited to the top ``MAX_GAPS`` gaps.
     """
-    gaps = find_gaps(user_id, db)[:MAX_GAPS]
+    gaps = find_gaps(current_user.id, db)[:MAX_GAPS]
     if not gaps:
         return []
 

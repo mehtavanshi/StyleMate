@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.database import get_db
+from app.models import User
 from app.services.packing_service import PURPOSES, generate_packing_list
 
 router = APIRouter(prefix="/packing", tags=["packing"])
@@ -12,7 +14,6 @@ class PackingRequest(BaseModel):
     destination: str
     duration: int
     purpose: str = "leisure"
-    user_id: int = 1
 
 
 @router.get("/purposes")
@@ -21,11 +22,15 @@ def list_purposes():
 
 
 @router.post("/packing-list")
-def get_packing_list(req: PackingRequest, db: Session = Depends(get_db)):
+def get_packing_list(
+    req: PackingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     return generate_packing_list(
         req.destination.strip() or "your destination",
         req.duration,
         req.purpose,
-        req.user_id,
+        current_user.id,
         db,
     )

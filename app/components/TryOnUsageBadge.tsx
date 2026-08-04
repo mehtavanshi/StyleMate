@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { DEMO_USER_ID, tryOnApi, TryOnUsage } from "../lib/api";
+import { tryOnApi, TryOnUsage } from "../lib/api";
 
 export default function TryOnUsageBadge() {
   const [usage, setUsage] = useState<TryOnUsage | null>(null);
 
   const fetchUsage = useCallback(async () => {
     try {
-      const data = await tryOnApi.usage(DEMO_USER_ID);
+      const data = await tryOnApi.usage();
       setUsage(data);
     } catch {
       // Silently fail — badge just won't show

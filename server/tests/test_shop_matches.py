@@ -45,29 +45,33 @@ def client():
 
 
 @pytest.fixture()
-def user_id(client):
+def auth_headers(client):
     res = client.post(
-        "/users/",
-        json={"name": "Test User", "email": "shop-match-test@example.com"},
+        "/auth/register",
+        json={
+            "name": "Test User",
+            "email": "shop-match-test@example.com",
+            "password": "Passw0rd",
+        },
     )
-    assert res.status_code == 201
-    return res.json()["id"]
+    assert res.status_code == 201, res.text
+    return {"Authorization": f"Bearer {res.json()['access_token']}"}
 
 
 @pytest.fixture()
-def clothing_item_id(client, user_id):
+def clothing_item_id(client, auth_headers):
     res = client.post(
-        "/clothing-items",
+        "/clothing/",
         json={
-            "user_id": user_id,
             "name": "Blue T-Shirt",
             "category": "top",
             "color": "blue",
             "occasion_tag": "casual",
             "image_url": "/uploads/test.jpg",
         },
+        headers=auth_headers,
     )
-    assert res.status_code == 201
+    assert res.status_code == 201, res.text
     return res.json()["id"]
 
 
@@ -82,6 +86,7 @@ class TestShopMatchesIntegration:
         mock_search,
         client,
         clothing_item_id,
+        auth_headers,
     ):
         """Happy path: valid item returns 200 with all required keys and
         ai_top_picks has at most 3 entries."""
@@ -101,7 +106,9 @@ class TestShopMatchesIntegration:
             RankedProduct(product=mock_product, similarity_score=0.85),
         ]
 
-        res = client.get(f"/items/{clothing_item_id}/shop-matches")
+        res = client.get(
+            f"/items/{clothing_item_id}/shop-matches", headers=auth_headers
+        )
 
         assert res.status_code == 200, f"Expected 200, got {res.status_code}: {res.text}"
         data = res.json()
@@ -115,9 +122,9 @@ class TestShopMatchesIntegration:
             assert "meesho_search_link" in group
             assert len(group["ai_top_picks"]) <= 3
 
-    def test_unknown_item_returns_404(self, client):
+    def test_unknown_item_returns_404(self, client, auth_headers):
         """Non-existent item_id returns 404, not a crash or wrong page."""
-        res = client.get("/items/999999/shop-matches")
+        res = client.get("/items/999999/shop-matches", headers=auth_headers)
         assert res.status_code == 404
 
     @patch("app.routers.shop_matches.search_all_providers", new_callable=AsyncMock)
@@ -128,6 +135,7 @@ class TestShopMatchesIntegration:
         mock_search,
         client,
         clothing_item_id,
+        auth_headers,
     ):
         """When Meesho data is returned, meesho_search_link is not null."""
         mock_product = Product(
@@ -154,7 +162,9 @@ class TestShopMatchesIntegration:
             RankedProduct(product=mock_product, similarity_score=0.85),
         ]
 
-        res = client.get(f"/items/{clothing_item_id}/shop-matches")
+        res = client.get(
+            f"/items/{clothing_item_id}/shop-matches", headers=auth_headers
+        )
         assert res.status_code == 200
         data = res.json()
 
@@ -173,6 +183,7 @@ class TestShopMatchesIntegration:
         mock_search,
         client,
         clothing_item_id,
+        auth_headers,
     ):
         """The refresh=true parameter bypasses the cache and returns fresh data."""
         mock_product = Product(
@@ -190,7 +201,10 @@ class TestShopMatchesIntegration:
             RankedProduct(product=mock_product, similarity_score=0.85),
         ]
 
-        res = client.get(f"/items/{clothing_item_id}/shop-matches?refresh=true")
+        res = client.get(
+            f"/items/{clothing_item_id}/shop-matches?refresh=true",
+            headers=auth_headers,
+        )
         assert res.status_code == 200
         data = res.json()
         assert isinstance(data, list)
@@ -203,15 +217,14 @@ class TestShopMatchesIntegration:
         mock_rank,
         mock_search,
         client,
-        user_id,
+        auth_headers,
     ):
         """An item with subcategory + embellishments produces an enriched
         search query containing both values, not just the display name."""
         # Create an item with known subcategory and embellishments.
         res = client.post(
-            "/clothing-items",
+            "/clothing/",
             json={
-                "user_id": user_id,
                 "name": "Blue Wide-Leg Jeans",
                 "category": "bottom",
                 "color": "blue",
@@ -220,8 +233,9 @@ class TestShopMatchesIntegration:
                 "occasion_tag": "casual",
                 "image_url": "/uploads/test.jpg",
             },
+            headers=auth_headers,
         )
-        assert res.status_code == 201
+        assert res.status_code == 201, res.text
         item_id = res.json()["id"]
 
         mock_product = Product(
@@ -243,7 +257,7 @@ class TestShopMatchesIntegration:
             RankedProduct(product=mock_product, similarity_score=0.85),
         ]
 
-        res = client.get(f"/items/{item_id}/shop-matches")
+        res = client.get(f"/items/{item_id}/shop-matches", headers=auth_headers)
         assert res.status_code == 200
 
         # At least one query should mention the subcategory and embellishment.

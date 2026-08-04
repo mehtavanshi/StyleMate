@@ -1,6 +1,6 @@
 import { BASE_URL } from "../config/api";
-import { CURRENT_CONSENT_VERSION, DEMO_USER_ID } from "./constants";
-export { DEMO_USER_ID };
+import { CURRENT_CONSENT_VERSION } from "./constants";
+import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "./tokenStore";
 
 export interface ClothingItem {
   id: number;
@@ -50,11 +50,108 @@ export interface ConsentStatus {
   photo_url: string | null;
 }
 
+export interface AuthResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  user: User;
+}
+
+// ── Authenticated fetch with single-flight silent refresh ──
+
+let refreshInFlight: Promise<string | null> | null = null;
+let authExpiredNotified = false;
+let onAuthExpired: (() => void) | null = null;
+
+/** Register the handler invoked when tokens can no longer be refreshed. */
+export function setOnAuthExpired(handler: () => void): void {
+  onAuthExpired = handler;
+}
+
+function notifyAuthExpired(): void {
+  if (authExpiredNotified) return;
+  authExpiredNotified = true;
+  onAuthExpired?.();
+}
+
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return typeof payload.exp === "number" && payload.exp * 1000 <= Date.now();
+  } catch {
+    return true;
+  }
+}
+
+async function performRefresh(): Promise<string | null> {
+  const refreshToken = await getRefreshToken();
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${BASE_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { access_token: string; refresh_token: string };
+    await setTokens(data.access_token, data.refresh_token);
+    authExpiredNotified = false;
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
+function refreshAccessToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = performRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+async function getValidAccessToken(): Promise<string | null> {
+  const token = await getAccessToken();
+  if (token && !isTokenExpired(token)) return token;
+  return refreshAccessToken();
+}
+
+/** Low-level request: attaches auth, silently refreshes once on 401. */
+async function request(path: string, options: RequestInit = {}): Promise<Response> {
+  const isAuthRoute = path.startsWith("/auth/");
+  const headers = new Headers(options.headers);
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (!isFormData) headers.set("Content-Type", "application/json");
+
+  if (!isAuthRoute) {
+    const token = await getValidAccessToken();
+    if (!token) {
+      await clearTokens();
+      notifyAuthExpired();
+      throw new Error("Not authenticated");
+    }
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  let res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+
+  if (!isAuthRoute && res.status === 401) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      headers.set("Authorization", `Bearer ${newToken}`);
+      res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+    }
+    if (res.status === 401) {
+      await clearTokens();
+      notifyAuthExpired();
+    }
+  }
+  return res;
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const res = await request(path, options);
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`API error ${res.status}: ${text}`);
@@ -64,15 +161,34 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 async function apiDelete(path: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-  });
+  const res = await request(path, { method: "DELETE" });
   if (res.status !== 204) {
     const text = await res.text();
     throw new Error(`API error ${res.status}: ${text}`);
   }
 }
+
+// ── Auth ──
+
+export const authApi = {
+  register: (email: string, password: string, name?: string) =>
+    apiFetch<AuthResponse>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, name: name || null }),
+    }),
+
+  login: (email: string, password: string) =>
+    apiFetch<AuthResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+
+  logout: (refreshToken: string) =>
+    apiFetch<void>("/auth/logout", {
+      method: "POST",
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }),
+};
 
 export interface SuggestionsResponse {
   wardrobe_matches: SuggestionMatch[];
@@ -97,18 +213,18 @@ export interface ShopLink {
 export const clothingApi = {
   list: (params?: { category?: string; season?: string; occasion_tag?: string; target_gender?: string }) => {
     const query = new URLSearchParams();
-    query.set("user_id", String(DEMO_USER_ID));
     if (params?.category) query.set("category", params.category);
     if (params?.season) query.set("season", params.season);
     if (params?.occasion_tag) query.set("occasion_tag", params.occasion_tag);
     if (params?.target_gender) query.set("target_gender", params.target_gender);
-    return apiFetch<ClothingItem[]>(`/clothing/?${query.toString()}`);
+    const qs = query.toString();
+    return apiFetch<ClothingItem[]>(`/clothing/${qs ? `?${qs}` : ""}`);
   },
   get: (id: number) => apiFetch<ClothingItem>(`/clothing/${id}`),
   create: (item: Partial<ClothingItem>) =>
     apiFetch<ClothingItem>("/clothing/", {
       method: "POST",
-      body: JSON.stringify({ ...item, user_id: DEMO_USER_ID }),
+      body: JSON.stringify(item),
     }),
   update: (id: number, item: Partial<ClothingItem>) =>
     apiFetch<ClothingItem>(`/clothing/${id}`, {
@@ -126,32 +242,30 @@ export const clothingApi = {
 };
 
 export const usersApi = {
-  get: (id: number) => apiFetch<User>(`/users/${id}`),
-  setBodyType: (id: number, bodyType: string) =>
-    apiFetch<User>(`/users/${id}/body-type`, {
+  me: () => apiFetch<User>("/users/me"),
+  setBodyType: (bodyType: string) =>
+    apiFetch<User>("/users/me/body-type", {
       method: "POST",
       body: JSON.stringify({ body_type: bodyType }),
     }),
 };
 
 export const consentApi = {
-  getStatus: (userId: number) =>
-    apiFetch<ConsentStatus>(`/users/${userId}/consent`),
+  getStatus: () => apiFetch<ConsentStatus>("/users/me/consent"),
 
-  giveConsent: (userId: number) =>
-    apiFetch<ConsentStatus>(`/users/${userId}/consent`, {
+  giveConsent: () =>
+    apiFetch<ConsentStatus>("/users/me/consent", {
       method: "POST",
       body: JSON.stringify({ consent_version: CURRENT_CONSENT_VERSION }),
     }),
 
-  setPhoto: (userId: number, imageUrl: string) =>
-    apiFetch<User>(`/users/${userId}/photo`, {
+  setPhoto: (imageUrl: string) =>
+    apiFetch<User>("/users/me/photo", {
       method: "PUT",
       body: JSON.stringify({ image_url: imageUrl }),
     }),
 
-  deletePhoto: (userId: number) =>
-    apiDelete(`/users/${userId}/photo`),
+  deletePhoto: () => apiDelete("/users/me/photo"),
 };
 
 export interface TagResult {
@@ -242,7 +356,6 @@ export interface CapsuleResponse {
 export const outfitApi = {
   suggest: (params?: { occasion_tag?: string; target_gender?: string; limit?: number; offset?: number }) => {
     const query = new URLSearchParams();
-    query.set("user_id", String(DEMO_USER_ID));
     if (params?.occasion_tag) query.set("occasion_tag", params.occasion_tag);
     if (params?.target_gender) query.set("target_gender", params.target_gender);
     if (params?.limit) query.set("limit", String(params.limit));
@@ -253,12 +366,11 @@ export const outfitApi = {
   smartSuggest: (query: string, limit = 5) =>
     apiFetch<SmartOutfitResponse>("/smart-outfit", {
       method: "POST",
-      body: JSON.stringify({ query, limit, user_id: DEMO_USER_ID }),
+      body: JSON.stringify({ query, limit }),
     }),
 
   weatherSuggest: (city?: string) => {
     const params = new URLSearchParams();
-    params.set("user_id", String(DEMO_USER_ID));
     if (city) params.set("city", city);
     return apiFetch<WeatherOutfitResponse>(`/weather-outfit?${params.toString()}`);
   },
@@ -274,7 +386,6 @@ export const outfitApi = {
         target_item_count: params?.target_item_count ?? 20,
         occasion_tag: params?.occasion_tag ?? null,
         locked_item_ids: params?.locked_item_ids ?? [],
-        user_id: DEMO_USER_ID,
       }),
     }),
 };
@@ -291,7 +402,7 @@ export const feedbackApi = {
   create: (outfitItemIds: number[], liked: boolean) =>
     apiFetch<OutfitFeedback>("/outfit-feedback", {
       method: "POST",
-      body: JSON.stringify({ user_id: DEMO_USER_ID, outfit_item_ids: outfitItemIds, liked }),
+      body: JSON.stringify({ outfit_item_ids: outfitItemIds, liked }),
     }),
 };
 
@@ -321,7 +432,6 @@ export interface ClosetGap {
 export const shoppingApi = {
   suggest: (params?: { target_gender?: string; occasion_tag?: string }) => {
     const query = new URLSearchParams();
-    query.set("user_id", String(DEMO_USER_ID));
     if (params?.target_gender) query.set("target_gender", params.target_gender);
     if (params?.occasion_tag) query.set("occasion_tag", params.occasion_tag);
     return apiFetch<ShoppingGroup[]>(`/shopping-suggestions?${query.toString()}`);
@@ -329,7 +439,6 @@ export const shoppingApi = {
 
   gaps: (targetGender?: string) => {
     const query = new URLSearchParams();
-    query.set("user_id", String(DEMO_USER_ID));
     if (targetGender) query.set("target_gender", targetGender);
     return apiFetch<ClosetGap[]>(`/closet-gaps?${query.toString()}`);
   },
@@ -426,7 +535,6 @@ export interface CalendarEntry {
 export const calendarApi = {
   list: (params?: { start_date?: string; end_date?: string }) => {
     const query = new URLSearchParams();
-    query.set("user_id", String(DEMO_USER_ID));
     if (params?.start_date) query.set("start_date", params.start_date);
     if (params?.end_date) query.set("end_date", params.end_date);
     return apiFetch<CalendarEntry[]>(`/calendar-entries/?${query.toString()}`);
@@ -434,7 +542,7 @@ export const calendarApi = {
   create: (entry: { date: string; occasion_tag?: string }) =>
     apiFetch<CalendarEntry>("/calendar-entries/", {
       method: "POST",
-      body: JSON.stringify({ ...entry, user_id: DEMO_USER_ID }),
+      body: JSON.stringify(entry),
     }),
   update: (id: number, updates: { occasion_tag?: string; locked_outfit_id?: number | null }) =>
     apiFetch<CalendarEntry>(`/calendar-entries/${id}`, {
@@ -512,7 +620,7 @@ export const packingApi = {
   generate: (destination: string, duration: number, purpose: string) =>
     apiFetch<PackingList>("/packing/packing-list", {
       method: "POST",
-      body: JSON.stringify({ destination, duration, purpose, user_id: DEMO_USER_ID }),
+      body: JSON.stringify({ destination, duration, purpose }),
     }),
 };
 
@@ -535,7 +643,7 @@ export const fashionRatingApi = {
   rate: (imageUrl?: string) =>
     apiFetch<FashionRating>("/fashion-rating/rate", {
       method: "POST",
-      body: JSON.stringify({ image_url: imageUrl ?? null, user_id: DEMO_USER_ID }),
+      body: JSON.stringify({ image_url: imageUrl ?? null }),
     }),
 };
 
@@ -574,13 +682,11 @@ export interface RepeatCheck {
 
 export const wearApi = {
   analytics: (days = 30) =>
-    apiFetch<WearAnalytics>(
-      `/calendar/analytics?user_id=${DEMO_USER_ID}&days=${days}`,
-    ),
+    apiFetch<WearAnalytics>(`/calendar/analytics?days=${days}`),
 
   repeatCheck: (itemIds: number[], days = 30) =>
     apiFetch<RepeatCheck>(
-      `/calendar/repeat-check?user_id=${DEMO_USER_ID}&days=${days}` +
+      `/calendar/repeat-check?days=${days}` +
         `&outfit_item_ids=${itemIds.join(",")}`,
     ),
 };
@@ -617,12 +723,8 @@ export interface TryOnUsage {
 
 export const tryOnApi = {
   render: async (garmentIds: number[]): Promise<TryOnJob> => {
-    const res = await fetch(`${BASE_URL}/try-on`, {
+    const res = await request("/try-on", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-User-ID": String(DEMO_USER_ID),
-      },
       body: JSON.stringify({ garment_ids: garmentIds }),
     });
     if (res.status === 429) {
@@ -648,11 +750,9 @@ export const tryOnApi = {
   poll: (jobId: string) =>
     apiFetch<TryOnJob>(`/try-on/${jobId}`),
 
-  results: (userId: number) =>
-    apiFetch<TryOnJob[]>(`/try-on/results/${userId}`),
+  results: () => apiFetch<TryOnJob[]>("/try-on/results"),
 
-  usage: (userId: number) =>
-    apiFetch<TryOnUsage>(`/try-on/usage/${userId}`),
+  usage: () => apiFetch<TryOnUsage>("/try-on/usage"),
 };
 
 export const uploadApi = {
@@ -663,7 +763,7 @@ export const uploadApi = {
       name: fileName,
       type: mimeType,
     } as any);
-    const res = await fetch(`${BASE_URL}/upload-image`, {
+    const res = await request("/upload-image", {
       method: "POST",
       body: formData,
     });
@@ -677,7 +777,7 @@ export const uploadApi = {
     mimeType: string,
     onProgress?: (progress: number) => void,
   ): Promise<{ image_url: string }> => {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       const formData = new FormData();
       formData.append("file", {
         uri: fileUri,
@@ -685,29 +785,63 @@ export const uploadApi = {
         type: mimeType,
       } as any);
 
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${BASE_URL}/upload-image`);
+      const xhrUpload = (authToken: string) =>
+        new Promise<{ image_url: string }>((res, rej) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", `${BASE_URL}/upload-image`);
+          xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
 
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && onProgress) {
-          onProgress(e.loaded / e.total);
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable && onProgress) {
+              onProgress(e.loaded / e.total);
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status === 200) {
+              try {
+                res(JSON.parse(xhr.responseText));
+              } catch {
+                rej(new Error("Invalid server response"));
+              }
+            } else if (xhr.status === 401) {
+              const err = new Error("Unauthorized") as Error & { status: number };
+              err.status = 401;
+              rej(err);
+            } else {
+              rej(new Error(`Upload failed (${xhr.status})`));
+            }
+          };
+
+          xhr.onerror = () => rej(new Error("Network error during upload"));
+          xhr.send(formData);
+        });
+
+      try {
+        const token = await getValidAccessToken();
+        if (!token) {
+          await clearTokens();
+          notifyAuthExpired();
+          reject(new Error("Not authenticated"));
+          return;
         }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status === 200) {
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch {
-            reject(new Error("Invalid server response"));
+        try {
+          resolve(await xhrUpload(token));
+        } catch (err) {
+          if ((err as Error & { status?: number }).status === 401) {
+            const newToken = await refreshAccessToken();
+            if (newToken) {
+              resolve(await xhrUpload(newToken));
+              return;
+            }
+            await clearTokens();
+            notifyAuthExpired();
           }
-        } else {
-          reject(new Error(`Upload failed (${xhr.status})`));
+          reject(err);
         }
-      };
-
-      xhr.onerror = () => reject(new Error("Network error during upload"));
-      xhr.send(formData);
+      } catch (err) {
+        reject(err);
+      }
     });
   },
 

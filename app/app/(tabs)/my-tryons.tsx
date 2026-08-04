@@ -12,7 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { borderRadius as br, colors, fontSize, fontWeight, shadow, spacing } from "../../theme/tokens";
 import { router, useFocusEffect } from "expo-router";
 
-import { DEMO_USER_ID, tryOnApi, TryOnJob } from "../../lib/api";
+import { tryOnApi, TryOnJob } from "../../lib/api";
 import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
 import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
@@ -66,7 +66,7 @@ export default function MyTryOnsScreen() {
       let cancelled = false;
       setLoading(true);
       tryOnApi
-        .results(DEMO_USER_ID)
+        .results()
         .then((data) => {
           if (!cancelled) setResults(data);
         })

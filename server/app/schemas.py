@@ -1,9 +1,45 @@
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.config import VALID_BODY_TYPES
+
+
+# ── Auth ──
+
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    name: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if not any(ch.isupper() for ch in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(ch.isdigit() for ch in v):
+            raise ValueError("Password must contain at least one number")
+        return v
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class RefreshIn(BaseModel):
+    refresh_token: str
+
+
+class LogoutIn(BaseModel):
+    refresh_token: str
+
+
+class TokenPair(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
 
 
 # ── User ──
@@ -30,6 +66,14 @@ class UserResponse(UserBase):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AuthUserResponse(UserResponse):
+    """User payload returned by /auth/register and /auth/login."""
+
+
+class RegisterResponse(TokenPair):
+    user: UserResponse
 
 
 # ── Consent ──
@@ -89,7 +133,7 @@ class ClothingItemBase(BaseModel):
 
 
 class ClothingItemCreate(ClothingItemBase):
-    user_id: int
+    pass
 
 
 class ClothingItemUpdate(BaseModel):
@@ -133,7 +177,7 @@ class CalendarEntryBase(BaseModel):
 
 
 class CalendarEntryCreate(CalendarEntryBase):
-    user_id: int
+    pass
 
 
 class CalendarEntryUpdate(BaseModel):
@@ -170,13 +214,13 @@ class TryOnResultOut(BaseModel):
 # ── OutfitFeedback ──
 
 class OutfitFeedbackIn(BaseModel):
-    user_id: int
     outfit_item_ids: list[int]
     liked: bool
 
 
 class OutfitFeedbackResponse(OutfitFeedbackIn):
     id: int
+    user_id: int
     created_at: datetime
 
     model_config = {"from_attributes": True}

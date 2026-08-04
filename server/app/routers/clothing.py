@@ -3,9 +3,10 @@ from threading import Thread
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.database import SessionLocal, get_db
 from app.matching_service import complete_outfit, suggest_matches
-from app.models import ClothingItem
+from app.models import ClothingItem, User
 from app.pair_cache import invalidate_item
 from app.routers.tagging import score_to_formality_label
 from app.schemas import ClothingItemCreate, ClothingItemUpdate, ClothingItemResponse
@@ -14,18 +15,28 @@ from app.style_embeddings import compute_and_store_embedding
 router = APIRouter(prefix="/clothing", tags=["clothing"])
 
 
+def _get_item_or_404(item_id: int, db: Session) -> ClothingItem:
+    item = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item
+
+
+def _check_owner(item: ClothingItem, user_id: int) -> None:
+    if item.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+
 @router.get("/", response_model=list[ClothingItemResponse])
 def list_items(
-    user_id: int | None = None,
     category: str | None = None,
     season: str | None = None,
     occasion_tag: str | None = None,
     target_gender: str | None = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    query = db.query(ClothingItem)
-    if user_id is not None:
-        query = query.filter(ClothingItem.user_id == user_id)
+    query = db.query(ClothingItem).filter(ClothingItem.user_id == current_user.id)
     if category:
         query = query.filter(ClothingItem.category == category)
     if season:
@@ -38,8 +49,12 @@ def list_items(
 
 
 @router.post("/", response_model=ClothingItemResponse, status_code=201)
-def create_item(item: ClothingItemCreate, db: Session = Depends(get_db)):
-    db_item = ClothingItem(**item.model_dump())
+def create_item(
+    item: ClothingItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    db_item = ClothingItem(**item.model_dump(), user_id=current_user.id)
     db_item.formality = score_to_formality_label(db_item.formality_score)
     db.add(db_item)
     db.commit()
@@ -62,18 +77,25 @@ def create_item(item: ClothingItemCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{item_id}", response_model=ClothingItemResponse)
-def get_item(item_id: int, db: Session = Depends(get_db)):
-    item = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+def get_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    item = _get_item_or_404(item_id, db)
+    _check_owner(item, current_user.id)
     return item
 
 
 @router.put("/{item_id}", response_model=ClothingItemResponse)
-def update_item(item_id: int, updates: ClothingItemUpdate, db: Session = Depends(get_db)):
-    item = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+def update_item(
+    item_id: int,
+    updates: ClothingItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    item = _get_item_or_404(item_id, db)
+    _check_owner(item, current_user.id)
     for key, value in updates.model_dump(exclude_unset=True).items():
         setattr(item, key, value)
     # Always re-derive formality from score so the two never drift
@@ -88,10 +110,13 @@ def update_item(item_id: int, updates: ClothingItemUpdate, db: Session = Depends
 
 
 @router.delete("/{item_id}")
-def delete_item(item_id: int, db: Session = Depends(get_db)):
-    item = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+def delete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    item = _get_item_or_404(item_id, db)
+    _check_owner(item, current_user.id)
     invalidate_item(db, item_id)
     db.delete(item)
     db.commit()
@@ -104,10 +129,19 @@ def item_suggestions(
     category: str,
     limit: int = 10,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    item = _get_item_or_404(item_id, db)
+    _check_owner(item, current_user.id)
     return suggest_matches(item_id, category, db, limit=limit)
 
 
 @router.get("/{item_id}/complete-outfit")
-def item_complete_outfit(item_id: int, db: Session = Depends(get_db)):
+def item_complete_outfit(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    item = _get_item_or_404(item_id, db)
+    _check_owner(item, current_user.id)
     return complete_outfit(item_id, db)

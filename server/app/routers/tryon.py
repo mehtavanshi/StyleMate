@@ -7,9 +7,10 @@ from datetime import date, datetime, time, timedelta, timezone
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.models import ClothingItem, TryOnResult, User
 from app.schemas import TryOnResultOut
@@ -81,14 +82,13 @@ def _dispatch_tryon_job(job_id: str) -> None:
 
 # ── Endpoints ──
 
-@router.get("/try-on/usage/{user_id}", response_model=TryOnUsageOut)
-def get_tryon_usage(user_id: int, db: Session = Depends(get_db)):
-    """Return the current daily try-on usage for a user."""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    used, limit, resets_at = _get_tryon_usage(db, user_id)
+@router.get("/try-on/usage", response_model=TryOnUsageOut)
+def get_tryon_usage(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the current daily try-on usage for the authenticated user."""
+    used, limit, resets_at = _get_tryon_usage(db, current_user.id)
     return TryOnUsageOut(
         used=used,
         limit=limit,
@@ -100,18 +100,12 @@ def get_tryon_usage(user_id: int, db: Session = Depends(get_db)):
 @router.post("/try-on", response_model=TryOnJobOut, status_code=202)
 def submit_tryon(
     body: TryOnRenderIn,
-    request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Submit a try-on job. Returns a job_id for polling."""
-    x_user_id = request.headers.get("X-User-ID")
-    if not x_user_id or not x_user_id.isdigit():
-        raise HTTPException(status_code=401, detail="X-User-ID header required")
-    user_id = int(x_user_id)
-
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    user_id = current_user.id
+    user = current_user
     if not user.photo_url:
         raise HTTPException(
             status_code=400,
@@ -179,36 +173,15 @@ def submit_tryon(
     )
 
 
-@router.get("/try-on/{job_id}", response_model=TryOnResultOut)
-def get_tryon_job(job_id: str, db: Session = Depends(get_db)):
-    """Poll a try-on job's status."""
-    record = db.query(TryOnResult).filter_by(job_id=job_id).first()
-    if not record:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    return TryOnResultOut(
-        id=record.id,
-        job_id=record.job_id,
-        status=record.status,
-        result_image_url=_sign_result_url(record.result_image_url),
-        error_message=record.error_message,
-        error_type=record.error_type,
-        model_used=record.model_used,
-        latency_ms=record.latency_ms,
-        created_at=record.created_at.isoformat() if record.created_at else "",
-    )
-
-
-@router.get("/try-on/results/{user_id}", response_model=list[TryOnResultOut])
-def list_tryon_results(user_id: int, db: Session = Depends(get_db)):
-    """List all try-on results for a user, newest first."""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
+@router.get("/try-on/results", response_model=list[TryOnResultOut])
+def list_tryon_results(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all try-on results for the authenticated user, newest first."""
     results = (
         db.query(TryOnResult)
-        .filter(TryOnResult.user_id == user_id)
+        .filter(TryOnResult.user_id == current_user.id)
         .order_by(TryOnResult.created_at.desc())
         .all()
     )
@@ -226,3 +199,29 @@ def list_tryon_results(user_id: int, db: Session = Depends(get_db)):
         )
         for r in results
     ]
+
+
+@router.get("/try-on/{job_id}", response_model=TryOnResultOut)
+def get_tryon_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Poll a try-on job's status."""
+    record = db.query(TryOnResult).filter_by(job_id=job_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if record.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    return TryOnResultOut(
+        id=record.id,
+        job_id=record.job_id,
+        status=record.status,
+        result_image_url=_sign_result_url(record.result_image_url),
+        error_message=record.error_message,
+        error_type=record.error_type,
+        model_used=record.model_used,
+        latency_ms=record.latency_ms,
+        created_at=record.created_at.isoformat() if record.created_at else "",
+    )

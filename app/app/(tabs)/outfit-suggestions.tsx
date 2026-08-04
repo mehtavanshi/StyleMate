@@ -19,7 +19,6 @@ import * as Linking from "expo-linking";
 import {
   consentApi,
   ConsentStatus,
-  DEMO_USER_ID,
   outfitApi,
   feedbackApi,
   shoppingApi,
@@ -361,7 +360,7 @@ export default function OutfitSuggestionsScreen() {
       loadSuggestions();
       loadShopping();
       consentApi
-        .getStatus(DEMO_USER_ID)
+        .getStatus()
         .then((s: ConsentStatus) => setHasPhoto(!!s.photo_consent && !!s.photo_url))
         .catch(() => {});
     }, [selectedOccasion, selectedTargetGender, loadSuggestions, loadShopping])

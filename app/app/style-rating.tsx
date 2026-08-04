@@ -15,7 +15,6 @@ import { Sparkles, Star } from "../lib/icons";
 import {
   consentApi,
   ConsentStatus,
-  DEMO_USER_ID,
   fashionRatingApi,
   FashionRating,
 } from "../lib/api";
@@ -65,7 +64,7 @@ export default function StyleRatingScreen() {
   useHardwareBack(handleBack);
 
   useEffect(() => {
-    consentApi.getStatus(DEMO_USER_ID).then(setConsent).catch(() => setConsent(null));
+    consentApi.getStatus().then(setConsent).catch(() => setConsent(null));
   }, []);
 
   const rate = useCallback(async () => {

@@ -16,7 +16,7 @@ import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 
-import { consentApi, DEMO_USER_ID, uploadApi } from "../lib/api";
+import { consentApi, uploadApi } from "../lib/api";
 import { MAX_LONG_EDGE_PX, JPEG_QUALITY } from "../lib/constants";
 import { validateImage } from "../lib/imageValidation";
 import useHardwareBack from "../lib/useHardwareBack";
@@ -140,7 +140,7 @@ export default function CaptureScreen() {
       );
 
       if (isBodyPhoto) {
-        await consentApi.setPhoto(DEMO_USER_ID, image_url);
+        await consentApi.setPhoto(image_url);
         router.replace((returnTo as any) || "/(tabs)");
       } else {
         router.replace(

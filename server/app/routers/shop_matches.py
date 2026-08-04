@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.database import get_db
-from app.models import ClothingItem
+from app.models import ClothingItem, User
 from app.shopping_service import Product, search_all_providers, SHOPPING_PROVIDERS
 from app.style_embeddings import rank_by_visual_fit, RankedProduct
 from app.style_match import build_item_match_queries
@@ -59,17 +60,20 @@ async def get_shop_matches(
     item_id: int,
     refresh: bool = False,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    if refresh:
-        _cache.pop(item_id, None)
-    else:
-        cached = _cache.get(item_id)
-        if cached is not None:
-            return cached
-
     item = db.query(ClothingItem).filter(ClothingItem.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    if item.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if refresh:
+        _cache.pop((current_user.id, item_id), None)
+    else:
+        cached = _cache.get((current_user.id, item_id))
+        if cached is not None:
+            return cached
 
     match_queries = build_item_match_queries(item_id, db)
 
@@ -127,5 +131,5 @@ async def get_shop_matches(
             }
         )
 
-    _cache[item_id] = groups
+    _cache[(current_user.id, item_id)] = groups
     return groups

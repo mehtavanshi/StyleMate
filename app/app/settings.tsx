@@ -14,11 +14,13 @@ import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../th
 import { router, useNavigation } from "expo-router";
 
 import { BASE_URL } from "../config/api";
-import { ConsentStatus, DEMO_USER_ID, consentApi } from "../lib/api";
+import { ConsentStatus, consentApi } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { resolvePhotoUrl } from "../lib/constants";
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
+  const { signOut } = useAuth();
   const [consentStatus, setConsentStatus] = useState<ConsentStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -28,7 +30,7 @@ export default function SettingsScreen() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const s = await consentApi.getStatus(DEMO_USER_ID);
+      const s = await consentApi.getStatus();
       setConsentStatus(s);
     } catch {
       //
@@ -52,7 +54,7 @@ export default function SettingsScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await consentApi.deletePhoto(DEMO_USER_ID);
+              await consentApi.deletePhoto();
               setConsentStatus((prev) =>
                 prev ? { ...prev, photo_url: null } : null,
               );
@@ -143,6 +145,27 @@ export default function SettingsScreen() {
       >
         <Text style={styles.linkButtonText}>Privacy policy</Text>
       </TouchableOpacity>
+
+      <View style={styles.sectionSpacer} />
+      <Text style={styles.sectionLabel}>Account</Text>
+
+      <TouchableOpacity
+        style={[styles.linkButton, styles.signOutButton]}
+        onPress={() => {
+          Alert.alert("Sign out", "Are you sure you want to sign out?", [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Sign Out",
+              style: "destructive",
+              onPress: () => signOut(),
+            },
+          ]);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Sign out"
+      >
+        <Text style={styles.signOutText}>Sign Out</Text>
+      </TouchableOpacity>
     </ScrollView>
     </SafeAreaView>
   );
@@ -194,4 +217,6 @@ const styles = StyleSheet.create({
   linkButtonTextPrimary: { fontSize: fontSize.sm + 1, color: colors.text.white, fontWeight: fontWeight.bold },
   deleteButton: { borderColor: "#c00" },
   deleteButtonText: { fontSize: fontSize.sm + 1, color: "#c00", fontWeight: fontWeight.semibold },
+  signOutButton: { borderColor: "#c00" },
+  signOutText: { fontSize: fontSize.sm + 1, color: "#c00", fontWeight: fontWeight.semibold },
 });
