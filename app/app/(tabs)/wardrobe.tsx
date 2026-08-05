@@ -11,12 +11,15 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+const SCREEN_EDGES = ["left", "right", "bottom"] as const;
 import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../../theme/tokens";
 import { router, useFocusEffect } from "expo-router";
 import { clothingApi, ClothingItem } from "../../lib/api";
 import { BASE_URL } from "../../config/api";
 import { resolveImageUrl } from "../../lib/constants";
 import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
+import { padToRows, useGridColumns } from "../../lib/useGridColumns";
 
 const CATEGORIES = ["top", "bottom", "dress", "outerwear", "footwear", "accessory"];
 const OCCASIONS = ["casual", "office", "ethnic", "party", "formal", "loungewear"];
@@ -100,12 +103,15 @@ export default function WardrobeScreen() {
     }, [])
   );
 
-  const toggleFilter = (value: string, setter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+  // `single` rows behave like radio buttons — tapping the active chip clears it.
+  const toggleFilter = (
+    value: string,
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    single = false,
+  ) => {
     setter((prev) => {
-      const next = new Set(prev);
-      if (next.has(value)) next.delete(value);
-      else next.add(value);
-      return next;
+      if (prev.has(value)) return single ? new Set() : new Set([...prev].filter((v) => v !== value));
+      return single ? new Set([value]) : new Set(prev).add(value);
     });
   };
 
@@ -133,7 +139,8 @@ export default function WardrobeScreen() {
     label: string,
     options: string[],
     selected: Set<string>,
-    setter: React.Dispatch<React.SetStateAction<Set<string>>>
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    single = false
   ) => (
     <View style={styles.filterSection}>
       <Text style={styles.filterLabel}>{label}</Text>
@@ -148,7 +155,7 @@ export default function WardrobeScreen() {
           return (
             <TouchableOpacity
               style={[styles.chip, active && styles.chipActive]}
-              onPress={() => toggleFilter(o, setter)}
+              onPress={() => toggleFilter(o, setter, single)}
             >
               <Text style={[styles.chipText, active && styles.chipTextActive]}>{o}</Text>
             </TouchableOpacity>
@@ -158,9 +165,11 @@ export default function WardrobeScreen() {
     </View>
   );
 
-  const renderItem = ({ item }: { item: ClothingItem }) => (
-    <WardrobeGridCell item={item} />
-  );
+  const columns = useGridColumns();
+  const gridData = padToRows(filtered, columns);
+
+  const renderItem = ({ item }: { item: ClothingItem | null }) =>
+    item ? <WardrobeGridCell item={item} /> : <View style={styles.gridSpacer} />;
 
   if (loading) {
     return (
@@ -171,7 +180,7 @@ export default function WardrobeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={SCREEN_EDGES} style={styles.container}>
       <View style={styles.filterBar}>
         <TextInput
           style={styles.searchInput}
@@ -181,9 +190,9 @@ export default function WardrobeScreen() {
           onChangeText={setSearch}
           clearButtonMode="while-editing"
         />
-        {renderChipRow("Category", CATEGORIES, selectedCategories, setSelectedCategories)}
+        {renderChipRow("Category", CATEGORIES, selectedCategories, setSelectedCategories, true)}
         {renderChipRow("Occasion", OCCASIONS, selectedOccasions, setSelectedOccasions)}
-        {renderChipRow("Gender", TARGET_GENDERS, selectedTargetGenders, setSelectedTargetGenders)}
+        {renderChipRow("Gender", TARGET_GENDERS, selectedTargetGenders, setSelectedTargetGenders, true)}
         {(hasFilters || search.trim()) && (
           <TouchableOpacity style={styles.clearBtn} onPress={() => { clearFilters(); setSearch(""); }}>
             <Text style={styles.clearBtnText}>Clear all</Text>
@@ -204,9 +213,10 @@ export default function WardrobeScreen() {
         </View>
       ) : (
         <FlatList
-          data={filtered}
-          keyExtractor={(item) => String(item.id)}
-          numColumns={2}
+          data={gridData}
+          keyExtractor={(item, i) => (item ? String(item.id) : `spacer-${i}`)}
+          numColumns={columns}
+          key={columns} // FlatList requires a remount when numColumns changes
           columnWrapperStyle={styles.gridRow}
           contentContainerStyle={[styles.gridContainer, { paddingBottom }]}
           renderItem={renderItem}
@@ -228,9 +238,11 @@ const styles = StyleSheet.create({
   filterBar: { backgroundColor: colors.surface, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   searchInput: {
     marginHorizontal: spacing.lg,
-    marginTop: spacing.sm + 2,
+    // Was sm+2, which read as a gap between the screen title and the search
+    // box; the filter bar now starts flush against the header.
+    marginTop: spacing.xs,
     marginBottom: spacing.xs,
-    backgroundColor: "#f0f0f0",
+    backgroundColor: colors.surfaceSunken,
     borderRadius: br.sm + 2,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
@@ -240,9 +252,9 @@ const styles = StyleSheet.create({
   filterSection: { paddingTop: spacing.sm + 2 },
   filterLabel: { fontSize: fontSize.xs, fontWeight: fontWeight.bold, color: colors.text.light, textTransform: "uppercase", paddingHorizontal: spacing.lg, marginBottom: spacing.xs + 2 },
   chipList: { paddingHorizontal: spacing.md },
-  chip: { paddingHorizontal: spacing.sm + 6, paddingVertical: spacing.xs + 3, borderRadius: 20, backgroundColor: "#e8e8e8", marginRight: spacing.sm },
+  chip: { paddingHorizontal: spacing.sm + 6, paddingVertical: spacing.xs + 3, borderRadius: 20, backgroundColor: colors.surfaceSunken, marginRight: spacing.sm },
   chipActive: { backgroundColor: colors.accent },
-  chipText: { fontSize: fontSize.xs + 1, color: "#666", textTransform: "capitalize" },
+  chipText: { fontSize: fontSize.xs + 1, color: colors.text.secondary, textTransform: "capitalize" },
   chipTextActive: { color: colors.text.white },
   clearBtn: { alignSelf: "center", marginTop: spacing.xs + 2, paddingVertical: spacing.xs, paddingHorizontal: spacing.md },
   clearBtnText: { fontSize: fontSize.xs + 1, color: colors.danger, fontWeight: fontWeight.semibold },
@@ -255,9 +267,10 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.xs,
     borderRadius: br.md,
     overflow: "hidden",
-    backgroundColor: "#ddd",
+    backgroundColor: colors.surfaceSunken,
     aspectRatio: 3 / 4,
   },
+  gridSpacer: { flex: 1, marginHorizontal: spacing.xs },
   gridImage: { width: "100%", height: "100%" },
   gridImagePlaceholder: { alignItems: "center", justifyContent: "center" },
   placeholderText: { fontSize: fontSize.xxxl, fontWeight: fontWeight.bold, color: colors.text.light },

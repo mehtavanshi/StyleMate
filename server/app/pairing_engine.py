@@ -24,6 +24,7 @@ HSL_MAP: dict[str, tuple[float, float, float]] = {
     "white": (0, 0, 100),
     "grey": (0, 0, 50),
     "gray": (0, 0, 50),
+    "silver": (0, 0, 75),
     "beige": (40, 40, 80),
     "cream": (45, 50, 90),
     "ivory": (60, 30, 95),
@@ -82,12 +83,14 @@ HSL_MAP: dict[str, tuple[float, float, float]] = {
 }
 
 KNOWN_NEUTRAL_NAMES: set[str] = {
-    "black", "white", "beige", "grey", "gray", "cream",
+    "black", "white", "beige", "grey", "gray", "silver", "cream",
     "ivory", "khaki", "tan", "navy", "sage", "mauve",
 }
 
 # Fashion-specific clashing pairs — these look bad together despite
-# color theory saying they're complementary or analogous.
+# color theory saying they're complementary or analogous. Checked *before*
+# the neutral shortcut, otherwise every neutral clash (navy+black,
+# brown+black, gold+silver) scored a confident 0.9.
 _FASHION_CLASHES: set[frozenset[str]] = {
     frozenset(("lime", "purple")),
     frozenset(("red", "green")),
@@ -96,6 +99,11 @@ _FASHION_CLASHES: set[frozenset[str]] = {
     frozenset(("maroon", "teal")),
     frozenset(("lavender", "mustard")),
     frozenset(("fuchsia", "rust")),
+    frozenset(("navy", "black")),
+    frozenset(("brown", "black")),
+    frozenset(("gold", "silver")),
+    frozenset(("red", "pink")),
+    frozenset(("blue", "purple")),
 }
 
 # ── Fabric compatibility ──
@@ -179,7 +187,9 @@ _BODY_TYPE_RULES = get_body_type_rules()
 def _normalise(color: str | None) -> str:
     if not color:
         return ""
-    return color.strip().lower()
+    # split()/join collapses runs of whitespace too — "navy  blue" and
+    # "navy blue" have to reach HSL_MAP as the same key.
+    return " ".join(color.split()).lower()
 
 
 def _color_to_hsl(color: str | None) -> tuple[float, float, float] | None:
@@ -190,9 +200,17 @@ def _color_to_hsl(color: str | None) -> tuple[float, float, float] | None:
         return None
     if c in HSL_MAP:
         return HSL_MAP[c]
-    for key in HSL_MAP:
-        if key in c or c in key:
-            return HSL_MAP[key]
+    # Dict-order matching made "navy blue" resolve to "blue" and "olive green"
+    # to "green" — different lightness, different pairing advice. In English
+    # colour compounds the modifier leads, so the earliest match in the string
+    # wins (longest on ties), independent of HSL_MAP's insertion order.
+    contained = [key for key in HSL_MAP if key in c]
+    if contained:
+        return HSL_MAP[min(contained, key=lambda k: (c.index(k), -len(k)))]
+    # Fall back to the closest name this is a prefix/fragment of ("navy" → …).
+    partial = [key for key in HSL_MAP if c in key]
+    if partial:
+        return HSL_MAP[min(partial, key=len)]
     return None
 
 
@@ -201,9 +219,12 @@ def _is_neutral_hsl(hsl: tuple[float, float, float], name: str = "") -> bool:
     h, s, l = hsl
     if _normalise(name) in KNOWN_NEUTRAL_NAMES:
         return True
-    if s < 15:
+    # Tightened from s<15 / l outside 10-90: pastels and muted-but-real colours
+    # were being waved through as "goes with anything" and scored 0.9 against
+    # everything, including things they clash with.
+    if s < 12:
         return True
-    if l < 10 or l > 90:
+    if l < 8 or l > 92:
         return True
     return False
 
@@ -451,6 +472,7 @@ def _pattern_is_busy(pattern: str | None) -> bool:
 
 def _fabric_score(fabric1: str | None, fabric2: str | None) -> float:
     if not fabric1 or not fabric2:
+        logger.debug("fabric score neutral: missing fabric_type (%r, %r)", fabric1, fabric2)
         return 0.5
     pair = frozenset({_normalise(fabric1), _normalise(fabric2)})
     if pair in _FABRIC_AFFINITY:
@@ -464,7 +486,10 @@ def _fit_contrast_score(fit1: str | None, fit2: str | None) -> float:
     if not fit1 or not fit2:
         return 0.5
     key = (_normalise(fit1), _normalise(fit2))
-    return _FIT_CONTRAST.get(key, 0.5)
+    if key not in _FIT_CONTRAST:
+        logger.debug("fit score neutral: unsupported fit combination %s", key)
+        return 0.5
+    return _FIT_CONTRAST[key]
 
 
 def _season_compatible(season1: str | None, season2: str | None) -> float:
@@ -583,12 +608,12 @@ def _body_type_style_score(
     if not tags:
         return 0.5
 
-    total_boost = 0.0
-    for tag in tags:
-        total_boost += get_style_boost(user_body_type, tag)
-
-    # Clamp to [0, 1]
-    return min(max(total_boost, 0.0), 1.0)
+    # Boosts are additive *on top of* neutral. Returning the raw boost sum
+    # meant a body type with no rule for these tags scored 0.0 — worse than
+    # having no tags at all — and a perfect 0.15 match still scored below
+    # neutral. Every tagged item was being penalised by the style signal.
+    total_boost = sum(get_style_boost(user_body_type, tag) for tag in tags)
+    return min(max(0.5 + total_boost, 0.0), 1.0)
 
 
 # ── Embedding & hard-rule helpers ──
@@ -634,6 +659,12 @@ def _embedding_similarity(item1: ClothingItem, item2: ClothingItem) -> float:
     e1 = _load_embedding(item1)
     e2 = _load_embedding(item2)
     if e1 is None or e2 is None:
+        # Silent 0.5 here made a missing embedding indistinguishable from a
+        # genuinely middling match — name the items so it can be backfilled.
+        logger.debug(
+            "embedding score neutral: no embedding for item(s) %s",
+            [getattr(i, "id", "?") for i, e in ((item1, e1), (item2, e2)) if e is None],
+        )
         return 0.5
     sim = cosine_similarity(e1, e2)
     return (sim + 1.0) / 2.0
@@ -732,13 +763,14 @@ def score_pair_color(c1: str | None, c2: str | None) -> float:
     if hsl1 is None or hsl2 is None:
         return 0.5
 
-    if _is_neutral_hsl(hsl1, c1) or _is_neutral_hsl(hsl2, c2):
-        return 0.9
-
-    # Fashion-specific clashing override
+    # Clash check runs first: a known-bad pair stays bad even when one side is
+    # a neutral. Previously navy+black hit the neutral shortcut and scored 0.9.
     pair_key = frozenset({_normalise(c1), _normalise(c2)})
     if pair_key in _FASHION_CLASHES:
         return 0.25
+
+    if _is_neutral_hsl(hsl1, c1) or _is_neutral_hsl(hsl2, c2):
+        return 0.9
 
     diff = _hue_diff(hsl1[0], hsl2[0])
     s1, s2 = hsl1[1], hsl2[1]
@@ -857,7 +889,7 @@ def _score_pair_uncached(
     elif fabric_score <= 0.3:
         reasons.append("clashing fabrics")
     if fit_score >= 0.8:
-        reasons.append("balanced silhouette")
+        reasons.append("balanced fit")
     elif fit_score <= 0.4:
         reasons.append("unbalanced fit")
     if season_score >= 0.8:
@@ -915,9 +947,13 @@ def score_outfit(
     items: list[ClothingItem],
     user_body_type: str | None = None,
 ) -> tuple[float, str, dict[str, float]]:
-    """Score an outfit (list of 2-3 items) and return (score, reason, breakdown)."""
+    """Score an outfit (list of 2-3 items) and return (score, reason, breakdown).
+
+    Baseline is 0.5 whenever there are no pairs to judge — an empty outfit and
+    a one-item outfit both score the neutral baseline rather than 0.0 vs 0.5.
+    """
     if not items:
-        return 0.0, "Empty outfit", {}
+        return 0.5, "Empty outfit", {}
 
     colors = [i.color for i in items]
     patterns = [i.pattern for i in items]
@@ -941,41 +977,46 @@ def score_outfit(
     if busy_count >= 2:
         base *= 0.5
 
-    # HSL-based bonuses
+    # HSL-based bonuses. Exactly one colour-harmony bonus applies per outfit —
+    # complementary and analogous are two readings of "the colours work", and
+    # awarding both stacked to +0.22 on the same palette.
     hues = _outfit_hues(colors)
 
-    comp_bonus = 0.0
-    comp_reason = ""
+    harmony_bonus = 0.0
+    harmony_reason = ""
     comp_msg = _has_complementary_pair(hues)
-    if comp_msg:
-        comp_bonus = 0.10
-        comp_reason = comp_msg
-
-    analogous_bonus = 0.0
-    analogous_reason = ""
     ana_msg = _is_analogous(hues)
-    if ana_msg:
-        analogous_bonus = 0.12
-        analogous_reason = ana_msg
+    if comp_msg:
+        # Complementary is a property of one *pair*, so its weight shrinks as
+        # the outfit grows — a flat bonus over-rewarded 2-item outfits.
+        harmony_bonus = 0.10 * (2.0 / max(len(items), 2))
+        harmony_reason = comp_msg
+    elif ana_msg:
+        # Analogous is a property of every hue in the outfit, so it stays flat.
+        harmony_bonus = 0.12
+        harmony_reason = ana_msg
 
-    final = min(base + comp_bonus + analogous_bonus, 1.0)
+    # All-neutral was detected and mentioned in the explanation but never
+    # scored — the detection was dead code. Pair-by-pair scoring already
+    # rewards neutrals, so the outfit-level nudge is deliberately small.
+    named_hues = [(c, _color_to_hsl(c)) for c in colors]
+    all_neutral = bool(named_hues) and all(
+        hsl is not None and _is_neutral_hsl(hsl, c or "") for c, hsl in named_hues
+    )
+    neutral_bonus = 0.05 if all_neutral else 0.0
+
+    final = min(base + harmony_bonus + neutral_bonus, 1.0)
 
     # Average breakdown
     avg_breakdown = {k: round(v / pair_count, 3) for k, v in breakdown_sums.items()} if pair_count else {}
 
     # Build reason
     reasons = []
-    if comp_reason:
-        reasons.append(comp_reason)
-    if analogous_reason:
-        reasons.append(analogous_reason)
+    if harmony_reason:
+        reasons.append(harmony_reason)
     if busy_count >= 2:
         reasons.append("multiple busy patterns clash")
-    if all(
-        _is_neutral_hsl(hsl, c)
-        for c, hsl in zip(colors, hues)
-        if hsl is not None
-    ):
+    if all_neutral:
         reasons.append("all-neutral palette")
 
     reason = "; ".join(reasons) if reasons else "solid color pairing"

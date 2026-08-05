@@ -9,6 +9,7 @@ offline too.
 from __future__ import annotations
 
 import logging
+import os
 from collections import defaultdict
 
 from sqlalchemy.orm import Session
@@ -21,6 +22,13 @@ from app.style_match import _build_shop_links
 logger = logging.getLogger(__name__)
 
 PURPOSES = ("leisure", "business", "beach", "wedding", "adventure")
+
+# The request holds a worker for the whole Gemini round-trip. A deterministic
+# fallback table already exists, so cap the wait rather than block for a full
+# 60s (plus retries) on a slow call.
+# ponytail: bounded blocking call, not a queue. If packing throughput ever
+# matters, move it to the Celery job + poll pattern app/tasks.py uses for try-on.
+GEMINI_TIMEOUT_S = float(os.getenv("PACKING_GEMINI_TIMEOUT_S", "15"))
 
 # Max items we ever suggest packing per category, whatever the trip length.
 MAX_PER_CATEGORY = 7
@@ -116,6 +124,7 @@ def generate_packing_list(
         ),
         max_tokens=600,
         temperature=0.3,
+        timeout=GEMINI_TIMEOUT_S,
     ) or {}
 
     groups = _clean_groups(parsed.get("groups")) or _fallback_groups(duration, purpose)

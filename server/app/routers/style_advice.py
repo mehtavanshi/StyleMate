@@ -5,7 +5,7 @@ from typing import Any
 from cachetools import TTLCache
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import ClothingItem
@@ -33,6 +33,7 @@ class StyleAdviceResponse(BaseModel):
 
 class ExplainOutfitIn(BaseModel):
     outfit_item_ids: list[int]
+    user_id: int = 1
 
 
 @router.post("/explain-outfit")
@@ -44,7 +45,15 @@ def explain_outfit_endpoint(payload: ExplainOutfitIn, db: Session = Depends(get_
     """
     items = (
         db.query(ClothingItem)
-        .filter(ClothingItem.id.in_(payload.outfit_item_ids))
+        # joinedload: explain_outfit reads items[0].user for the body type, and
+        # a lazy load fired an extra SELECT on every expansion.
+        .options(joinedload(ClothingItem.user))
+        .filter(
+            ClothingItem.id.in_(payload.outfit_item_ids),
+            # Arbitrary ids used to be accepted, so any caller could read back
+            # a description of someone else's wardrobe.
+            ClothingItem.user_id == payload.user_id,
+        )
         .all()
     )
     if not items:

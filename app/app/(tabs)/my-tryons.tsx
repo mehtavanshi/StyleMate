@@ -9,6 +9,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+const SCREEN_EDGES = ["left", "right", "bottom"] as const;
 import { borderRadius as br, colors, fontSize, fontWeight, shadow, spacing } from "../../theme/tokens";
 import { router, useFocusEffect } from "expo-router";
 
@@ -16,6 +18,7 @@ import { DEMO_USER_ID, tryOnApi, TryOnJob } from "../../lib/api";
 import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
 import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
+import { padToRows, useGridColumns } from "../../lib/useGridColumns";
 import { X } from "../../lib/icons";
 
 function TryOnResultCard({ item }: { item: TryOnJob }) {
@@ -104,12 +107,15 @@ export default function MyTryOnsScreen() {
 
   const completedResults = results.filter((r) => r.status === "completed");
   const failedResults = results.filter((r) => r.status === "failed");
+  const columns = useGridColumns();
 
-  const renderResult = ({ item }: { item: TryOnJob }) => (
-    <TryOnResultCard item={item} />
-  );
+  const renderResult = ({ item }: { item: TryOnJob | null }) =>
+    item ? <TryOnResultCard item={item} /> : <View style={styles.cardSpacer} />;
 
-  const renderFailed = ({ item }: { item: TryOnJob }) => (
+  const renderFailed = ({ item }: { item: TryOnJob | null }) =>
+    !item ? (
+      <View style={styles.cardSpacer} />
+    ) : (
     <View style={[styles.card, styles.cardFailed]} accessibilityLabel={`Failed try-on: ${item.error_message || "Unknown error"}`}>
       <View style={styles.cardImage}>
         <X size={32} color="#E74C3C" strokeWidth={1.5} />
@@ -126,15 +132,16 @@ export default function MyTryOnsScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={SCREEN_EDGES} style={styles.container}>
       {completedResults.length > 0 && (
         <>
           <Text style={styles.sectionTitle}>Successful Try-Ons</Text>
           <FlatList
-            data={completedResults}
-            keyExtractor={(item) => item.job_id}
+            data={padToRows(completedResults, columns)}
+            keyExtractor={(item, i) => item?.job_id ?? `spacer-${i}`}
             renderItem={renderResult}
-            numColumns={2}
+            numColumns={columns}
+            key={columns}
             contentContainerStyle={[styles.grid, { paddingBottom }]}
             showsVerticalScrollIndicator={false}
           />
@@ -144,10 +151,11 @@ export default function MyTryOnsScreen() {
         <>
           <Text style={styles.sectionTitle}>Failed</Text>
           <FlatList
-            data={failedResults}
-            keyExtractor={(item) => item.job_id}
+            data={padToRows(failedResults, columns)}
+            keyExtractor={(item, i) => item?.job_id ?? `spacer-${i}`}
             renderItem={renderFailed}
-            numColumns={2}
+            numColumns={columns}
+            key={columns}
             contentContainerStyle={[styles.grid, { paddingBottom }]}
             showsVerticalScrollIndicator={false}
           />
@@ -182,6 +190,7 @@ const styles = StyleSheet.create({
     ...shadow.sm,
   },
   cardFailed: { opacity: 0.6 },
+  cardSpacer: { flex: 1, margin: spacing.xs },
   cardImage: {
     width: "100%",
     aspectRatio: 3 / 4,

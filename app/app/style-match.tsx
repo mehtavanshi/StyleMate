@@ -43,7 +43,10 @@ import {
   spacing,
 } from "../theme/tokens";
 
-const PAGE_SIZE = 5;
+// The first page asks the server for the same deeper candidate pool "Load More"
+// used to fetch — those generated matches score better than the shallow default.
+const PAGE_SIZE = 10;
+const MAX_LIMIT = 30; // server rejects limit > 30
 
 const countMatches = (d: StyleMatchResponse) =>
   d.alreadyOwned.length +
@@ -70,7 +73,7 @@ export default function StyleMatchScreen() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await styleMatchApi.get(Number(id));
+        const res = await styleMatchApi.get(Number(id), PAGE_SIZE);
         setData(res);
       } catch (e: any) {
         Alert.alert("Error", e.message);
@@ -113,9 +116,13 @@ export default function StyleMatchScreen() {
   // Ask the server for a deeper page of generated matches, then reveal it.
   // Without the refetch the button would just re-show the same cached set.
   const loadMore = async () => {
-    const next = limit + PAGE_SIZE;
+    const next = Math.min(limit + PAGE_SIZE, MAX_LIMIT);
     setLimit(next);
     if (exhausted) return;
+    if (next === limit) {
+      setExhausted(true);
+      return;
+    }
     setLoadingMore(true);
     try {
       const res = await styleMatchApi.get(Number(id), next);
@@ -209,6 +216,9 @@ export default function StyleMatchScreen() {
 
       {/* Shop matching items */}
       <Section title="Shop Matching Items" icon={ShoppingBag}>
+        {data.shoppingSuggestions.length === 0 && (
+          <Empty text="Nothing to shop for this piece right now." />
+        )}
         {data.shoppingSuggestions.slice(0, limit).map((s: ShoppingSuggestion, i) => (
           <View key={`shop-${i}`} style={styles.shopBlock}>
             <View style={styles.shopHead}>
@@ -284,13 +294,10 @@ function MatchSection({
   items: StyleMatchItem[];
   limit: number;
 }) {
-  if (!items || items.length === 0) {
-    return (
-      <Section title={title} icon={icon}>
-        <Empty text={`No matching ${title.toLowerCase()} found.`} />
-      </Section>
-    );
-  }
+  // The server only generates partner categories for the selected item, so an
+  // empty list means "not applicable here" (e.g. Matching Tops for a top) —
+  // rendering an empty section for every category just added noise.
+  if (!items || items.length === 0) return null;
   return (
     <Section title={title} icon={icon}>
       {items.slice(0, limit).map((it, i) => (
@@ -370,7 +377,7 @@ function Empty({ text }: { text: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { paddingBottom: spacing.xxl + spacing.sm },
+  content: { paddingBottom: spacing.xxl + spacing.sm, width: "100%", maxWidth: 760, alignSelf: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl },
   loadingText: { fontSize: fontSize.sm, color: colors.text.tertiary, marginTop: spacing.sm, textAlign: "center" },
 

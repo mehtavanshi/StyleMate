@@ -18,6 +18,13 @@ import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../th
 const HANDLE_HIT = 32;
 const MIN_CROP_NORMALIZED = 0.05;
 
+const ROTATIONS = [
+  { label: "↺ 90°", degrees: -90 },
+  { label: "−5°", degrees: -5 },
+  { label: "+5°", degrees: 5 },
+  { label: "↻ 90°", degrees: 90 },
+];
+
 interface CropRect {
   x: number; y: number; w: number; h: number;
 }
@@ -32,6 +39,7 @@ interface Props {
 
 export default function ImageEditor({ uri: initialUri, imageWidth: initialW, imageHeight: initialH, onApply, onCancel }: Props) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleBack = useCallback(() => {
     onCancel();
@@ -42,10 +50,11 @@ export default function ImageEditor({ uri: initialUri, imageWidth: initialW, ima
   const [currentUri, setCurrentUri] = useState(initialUri);
   const [imgW, setImgW] = useState(initialW);
   const [imgH, setImgH] = useState(initialH);
-  const [rotationCount, setRotationCount] = useState(0);
-
-  const dispW = rotationCount % 2 === 0 ? imgW : imgH;
-  const dispH = rotationCount % 2 === 0 ? imgH : imgW;
+  // imgW/imgH always hold the *current* (post-rotation) pixel size, so the
+  // displayed size is just that — an extra rotation-parity swap here used to
+  // flip the axes twice and crop the wrong region after a rotate.
+  const dispW = imgW;
+  const dispH = imgH;
 
   const [layout, setLayout] = useState({ w: 0, h: 0 });
 
@@ -149,20 +158,23 @@ export default function ImageEditor({ uri: initialUri, imageWidth: initialW, ima
     })
   ).current;
 
-  const handleRotate = useCallback(async () => {
+  const handleRotate = useCallback(async (degrees: number) => {
     setBusy(true);
+    setError(null);
     try {
       const result = await ImageManipulator.manipulate(currentUri)
-        .rotate(90)
+        .rotate(degrees)
         .renderAsync();
-      const saved = await result.saveAsync({ compress: 1, format: SaveFormat.JPEG });
+      // PNG, not JPEG: every rotate/crop writes an intermediate file, and
+      // re-encoding JPEG each round compounded generational artefacts. The
+      // single JPEG compression happens once, at upload.
+      const saved = await result.saveAsync({ compress: 1, format: SaveFormat.PNG });
       setCurrentUri(saved.uri);
       setImgW(saved.width);
       setImgH(saved.height);
       setCrop({ x: 0, y: 0, w: 1, h: 1 });
-      setRotationCount((r) => r + 1);
     } catch {
-      // fall through
+      setError("Could not rotate the image. Try again.");
     } finally {
       setBusy(false);
     }
@@ -170,6 +182,7 @@ export default function ImageEditor({ uri: initialUri, imageWidth: initialW, ima
 
   const handleApplyCrop = useCallback(async () => {
     setBusy(true);
+    setError(null);
     try {
       const ox = Math.round(crop.x * imgW);
       const oy = Math.round(crop.y * imgH);
@@ -178,14 +191,16 @@ export default function ImageEditor({ uri: initialUri, imageWidth: initialW, ima
       const man = await ImageManipulator.manipulate(currentUri)
         .crop({ originX: ox, originY: oy, width: cw, height: ch })
         .renderAsync();
-      const saved = await man.saveAsync({ compress: 1, format: SaveFormat.JPEG });
+      const saved = await man.saveAsync({ compress: 1, format: SaveFormat.PNG });
       onApply(saved.uri, saved.width, saved.height);
     } catch {
-      onCancel();
+      // Was silently cancelling out of the editor, which read as the app
+      // throwing the edit away for no reason.
+      setError("Could not apply that crop. Adjust the selection and retry.");
     } finally {
       setBusy(false);
     }
-  }, [currentUri, imgW, imgH, crop, onApply, onCancel]);
+  }, [currentUri, imgW, imgH, crop, onApply]);
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -230,10 +245,25 @@ export default function ImageEditor({ uri: initialUri, imageWidth: initialW, ima
         )}
       </View>
 
+      {error && (
+        <View style={styles.errorBar}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+
+      {/* Fine steps as well as quarter turns — 90° alone can't straighten a
+          photo taken slightly off-level. */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.rotateBtn} onPress={handleRotate}>
-          <Text style={styles.rotateBtnText}>↻ Rotate 90°</Text>
-        </TouchableOpacity>
+        {ROTATIONS.map(({ label, degrees }) => (
+          <TouchableOpacity
+            key={label}
+            style={styles.rotateBtn}
+            onPress={() => handleRotate(degrees)}
+            accessibilityLabel={`Rotate ${degrees} degrees`}
+          >
+            <Text style={styles.rotateBtnText}>{label}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
     </SafeAreaView>
   );
@@ -304,7 +334,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#333",
     borderRadius: br.md,
     paddingVertical: spacing.sm + 4,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.md,
   },
-  rotateBtnText: { color: colors.text.white, fontSize: fontSize.base, fontWeight: fontWeight.semibold },
+  rotateBtnText: { color: colors.text.white, fontSize: fontSize.sm + 1, fontWeight: fontWeight.semibold },
+  errorBar: {
+    backgroundColor: colors.danger,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  errorText: { color: colors.text.white, fontSize: fontSize.sm, textAlign: "center" },
 });

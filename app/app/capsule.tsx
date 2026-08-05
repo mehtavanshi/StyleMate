@@ -34,7 +34,7 @@ const TARGET_COUNTS = [10, 15, 20, 25, 30, 40];
 
 export default function CapsuleScreen() {
   const navigation = useNavigation();
-  const [targetCount, setTargetCount] = useState(20);
+  const [targetCount, setTargetCount] = useState(10);
   const [occasion, setOccasion] = useState<string | null>(null);
   const [locked, setLocked] = useState<number[]>([]);
   const [capsule, setCapsule] = useState<CapsuleResponse | null>(null);
@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   title: { flex: 1, fontSize: fontSize.xl, fontWeight: fontWeight.bold },
-  content: { padding: spacing.lg, paddingBottom: spacing.xxl },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl, width: "100%", maxWidth: 760, alignSelf: "center" },
   label: {
     fontSize: fontSize.xs + 1,
     fontWeight: fontWeight.bold,

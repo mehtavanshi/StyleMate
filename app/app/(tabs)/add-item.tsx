@@ -11,6 +11,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+const SCREEN_EDGES = ["left", "right", "bottom"] as const;
 import { ChevronDown, ChevronUp } from "../../lib/icons";
 import { spacing, fontSize, fontWeight, borderRadius as br, colors } from "../../theme/tokens";
 import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
@@ -251,7 +253,7 @@ export default function AddItemScreen() {
 
   if (!consentChecked) {
     return (
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={SCREEN_EDGES} style={{ flex: 1 }}>
         <View style={styles.container}>
           <ActivityIndicator size="large" color="#333" style={{ marginTop: 100 }} />
         </View>
@@ -262,7 +264,7 @@ export default function AddItemScreen() {
   // Tagging step
   if (step === "tagging") {
     return (
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={SCREEN_EDGES} style={{ flex: 1 }}>
         <View style={styles.container} accessibilityRole="progressbar" accessibilityLabel="Analyzing garment with AI">
           <View style={styles.loadingContent}>
             <ActivityIndicator size="large" color="#333" />
@@ -276,7 +278,7 @@ export default function AddItemScreen() {
   // Error step
   if (step === "error") {
     return (
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={SCREEN_EDGES} style={{ flex: 1 }}>
         <View style={styles.container}>
           <View style={styles.loadingContent}>
             <Text style={styles.errorTitle}>Tagging Failed</Text>
@@ -284,8 +286,10 @@ export default function AddItemScreen() {
             <TouchableOpacity
               style={styles.button}
               onPress={() => {
+                // Re-tag the image that's already uploaded rather than sending
+                // the user back through capture and storing a second copy.
                 if (imageUrl) {
-                  setStep("form");
+                  handleTagImage(imageUrl);
                 } else {
                   handleNavigateToCapture();
                 }
@@ -293,6 +297,11 @@ export default function AddItemScreen() {
             >
               <Text style={styles.buttonText}>Try Again</Text>
             </TouchableOpacity>
+            {imageUrl && (
+              <TouchableOpacity onPress={() => setStep("form")}>
+                <Text style={styles.errorDetail}>Fill in the details myself</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </SafeAreaView>
@@ -302,7 +311,7 @@ export default function AddItemScreen() {
   // No image yet — show CTA
   if (!imageUrl) {
     return (
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={SCREEN_EDGES} style={{ flex: 1 }}>
         <View style={styles.container}>
           <View style={styles.pickContent}>
             <Text style={styles.heading}>Add New Item</Text>
@@ -320,7 +329,7 @@ export default function AddItemScreen() {
 
   // Form step
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaView edges={SCREEN_EDGES} style={{ flex: 1 }}>
       <ScrollView style={styles.container} contentContainerStyle={[styles.formContent, { paddingBottom }]}>
       {imageUrl && (
         <Image source={{ uri: resolveImageUrl(imageUrl, BASE_URL) ?? undefined }} style={styles.formImage} />

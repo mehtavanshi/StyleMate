@@ -1,16 +1,14 @@
 """Wear-frequency tracking off the calendar's locked outfits.
 
-``CalendarEntry.locked_outfit_id`` holds the primary item of the outfit locked
-for that date, so a locked entry is the record of "this was worn then".
-
-ponytail: only the primary item is recorded, so a piece that was always the
-second or third item in a locked outfit reads as never worn. Upgrade path is a
-``locked_item_ids`` JSON column on CalendarEntry — do it if the repeat warnings
-start looking wrong to users.
+``CalendarEntry.locked_item_ids`` holds every item in the outfit locked for
+that date, so a locked entry is the record of "this whole outfit was worn
+then". Rows written before that column existed only carry
+``locked_outfit_id`` (the primary item) and are read through the same helper.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
 from datetime import date, timedelta
@@ -24,6 +22,21 @@ logger = logging.getLogger(__name__)
 # Wear count at which we nudge the user to switch it up.
 REPEAT_WARNING_THRESHOLD = 3
 DEFAULT_WINDOW_DAYS = 30
+
+
+def locked_item_ids(entry: CalendarEntry) -> list[int]:
+    """Item ids in an entry's locked outfit, oldest storage format included."""
+    raw = getattr(entry, "locked_item_ids", None)
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [int(i) for i in parsed]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            logger.warning("calendar entry %s has unreadable locked_item_ids", entry.id)
+    if entry.locked_outfit_id is not None:
+        return [entry.locked_outfit_id]
+    return []
 
 
 def _locked_entries(user_id: int, days: int, db: Session) -> list[CalendarEntry]:
@@ -43,7 +56,9 @@ def _locked_entries(user_id: int, days: int, db: Session) -> list[CalendarEntry]
 def _wear_counts(user_id: int, days: int, db: Session) -> Counter:
     counts: Counter = Counter()
     for entry in _locked_entries(user_id, days, db):
-        counts[entry.locked_outfit_id] += 1
+        # Every piece of the outfit counts as worn. Counting only the primary
+        # item made anything that was always second or third read as never worn.
+        counts.update(locked_item_ids(entry))
     return counts
 
 

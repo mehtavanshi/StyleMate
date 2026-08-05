@@ -76,7 +76,10 @@ EMBELLISHMENT_DISPLAY: dict[str, str] = {
     "beads": "bead embellishment",
 }
 
-EMBELLISHMENT_THRESHOLD: float = 0.15
+# Raised from 0.15, which sat barely above noise: "buttons" fired on every
+# button-up shirt and seams/zippers/pockets triggered constantly. Matches
+# style_embeddings.CONFIDENCE_THRESHOLD so one bar governs what we store.
+EMBELLISHMENT_THRESHOLD: float = 0.24
 
 EMBELLISHMENT_POSITIVE_TEMPLATE = "a photo of a garment with {phrase}"
 EMBELLISHMENT_NEGATIVE_TEMPLATE = "a photo of a plain garment with no {phrase}"

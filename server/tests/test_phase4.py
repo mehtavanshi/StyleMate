@@ -177,3 +177,33 @@ def test_repeat_check_warns_and_offers_a_less_worn_swap():
 
     # A fresh outfit gets no warnings at all.
     assert check_outfit_repeat(1, [11, 12], db)["warnings"] == []
+
+
+def test_wear_history_counts_every_item_in_a_locked_outfit():
+    """A locked outfit's second and third pieces count as worn too.
+
+    Counting only locked_outfit_id made anything that was never the primary
+    item read as never worn, which is what the repeat warnings are built on.
+    """
+    import json
+
+    from app.models import CalendarEntry
+
+    db = _wear_db()
+    # One more locked day, this time recording the whole outfit.
+    db.add(
+        CalendarEntry(
+            user_id=1,
+            date=date.today(),
+            locked_outfit_id=10,
+            locked_item_ids=json.dumps([10, 12]),
+        )
+    )
+    db.commit()
+
+    history = get_item_wear_history(1, 30, db)
+    counts = {i["id"]: i["wear_count"] for i in history["most_worn"]}
+    assert counts[10] == 4
+    assert counts[12] == 1, "the bottom was worn, not just the top"
+    # Legacy rows (locked_outfit_id only) still count.
+    assert history["total_wears"] == 5

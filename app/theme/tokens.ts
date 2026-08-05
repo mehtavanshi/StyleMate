@@ -49,6 +49,9 @@ export const MIN_TOUCH_TARGET = 44;
 export const colors = {
   background: "#f5f5f5",
   surface: "#fff",
+  // Inputs, chips and other inset controls sitting on `surface`. One token so
+  // a search box and the chips beneath it can't drift to different greys.
+  surfaceSunken: "#ededed",
   border: "#eee",
   text: {
     primary: "#222",

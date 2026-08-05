@@ -125,10 +125,23 @@ class ClothingItemResponse(ClothingItemBase):
 
 # ── CalendarEntry ──
 
+class CalendarOutfitItem(BaseModel):
+    """Enough of an item to render the locked outfit on a calendar date."""
+
+    id: int
+    name: Optional[str] = None
+    category: Optional[str] = None
+    color: Optional[str] = None
+    image_url: Optional[str] = None
+
+
 class CalendarEntryBase(BaseModel):
     date: date
     occasion_tag: Optional[str] = None
     locked_outfit_id: Optional[int] = None
+    # Every item in the locked outfit. Stored as a JSON string on the model;
+    # the router converts at the edge so clients only ever see a list.
+    locked_item_ids: Optional[list[int]] = None
     try_on_result_id: Optional[int] = None
 
 
@@ -140,6 +153,7 @@ class CalendarEntryUpdate(BaseModel):
     date: Optional[date] = None
     occasion_tag: Optional[str] = None
     locked_outfit_id: Optional[int] = None
+    locked_item_ids: Optional[list[int]] = None
     try_on_result_id: Optional[int] = None
 
 
@@ -148,6 +162,7 @@ class CalendarEntryResponse(CalendarEntryBase):
     user_id: int
     try_on_result_id: int | None = None
     try_on_result_image_url: str | None = None
+    locked_outfit_items: list["CalendarOutfitItem"] = []
     created_at: datetime
 
     model_config = {"from_attributes": True}

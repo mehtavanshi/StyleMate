@@ -35,4 +35,4 @@ def rate_photo(req: RatingRequest, db: Session = Depends(get_db)):
             )
         image_url = user.photo_url
 
-    return rate_outfit_photo(image_url)
+    return rate_outfit_photo(image_url, req.user_id)

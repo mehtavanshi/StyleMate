@@ -17,7 +17,7 @@ import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 
 import { consentApi, DEMO_USER_ID, uploadApi } from "../lib/api";
-import { MAX_LONG_EDGE_PX, JPEG_QUALITY } from "../lib/constants";
+import { JPEG_QUALITY, longEdgeResize } from "../lib/constants";
 import { validateImage } from "../lib/imageValidation";
 import useHardwareBack from "../lib/useHardwareBack";
 import BackButton from "../components/BackButton";
@@ -123,9 +123,9 @@ export default function CaptureScreen() {
     setUploadProgress(0);
 
     try {
-      const manipulated = await ImageManipulator.manipulate(capturedUri)
-        .resize({ width: MAX_LONG_EDGE_PX })
-        .renderAsync();
+      const resize = longEdgeResize(capturedWidth, capturedHeight);
+      const ctx = ImageManipulator.manipulate(capturedUri);
+      const manipulated = await (resize ? ctx.resize(resize) : ctx).renderAsync();
 
       const compressed = await manipulated.saveAsync({
         compress: JPEG_QUALITY,

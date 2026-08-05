@@ -14,6 +14,7 @@ import json
 import logging
 import tempfile
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -108,6 +109,14 @@ def get_embedding(image_path_or_url: str) -> list[float]:
     Returns:
         Normalized embedding vector as a list of floats.
     """
+    # Tagging one item asks ~20 questions about the same photo (one per field,
+    # per subcategory stage, per embellishment check). The image embedding is
+    # identical every time, so decode + forward-pass once and reuse it.
+    return list(_cached_embedding(image_path_or_url))
+
+
+@lru_cache(maxsize=256)
+def _cached_embedding(image_path_or_url: str) -> tuple[float, ...]:
     import torch
 
     image = _resolve_image(image_path_or_url)
@@ -122,7 +131,7 @@ def get_embedding(image_path_or_url: str) -> list[float]:
     if not isinstance(features, torch.Tensor):
         features = features.pooler_output
     features = features / features.norm(dim=-1, keepdim=True)
-    return features.squeeze().cpu().numpy().tolist()
+    return tuple(features.squeeze().cpu().numpy().tolist())
 
 
 def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
@@ -234,7 +243,10 @@ def zero_shot_classify(
     return candidate_labels[best_idx], sims[best_idx]
 
 
-STYLE_TAG_THRESHOLD: float = 0.12
+# Raised from 0.12: at that bar a plain t-shirt matched "fitted" or
+# "structured" by chance, and those noise tags then triggered body-type
+# boosts. Aligned with CONFIDENCE_THRESHOLD (the review bar).
+STYLE_TAG_THRESHOLD: float = CONFIDENCE_THRESHOLD
 
 
 def zero_shot_classify_multi(
@@ -252,7 +264,7 @@ def zero_shot_classify_multi(
     Args:
         image_path_or_url: Local path or HTTP(S) URL to the image.
         candidate_labels: Style-tag labels to evaluate.
-        threshold: Minimum similarity to keep a label (default 0.12).
+        threshold: Minimum similarity to keep a label (default STYLE_TAG_THRESHOLD).
 
     Returns:
         List of matching labels (may be empty).

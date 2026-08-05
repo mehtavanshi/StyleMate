@@ -1,17 +1,22 @@
+import json
+
 from dateutil import parser as date_parser
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import date
 
 from app.database import get_db
-from app.models import CalendarEntry, TryOnResult
+from app.models import CalendarEntry, ClothingItem, TryOnResult
 from app.schemas import (
     CalendarEntryCreate,
     CalendarEntryResponse,
     CalendarEntryUpdate,
 )
-from app.services.calendar_service import check_outfit_repeat, get_item_wear_history
+from app.services.calendar_service import (
+    check_outfit_repeat,
+    get_item_wear_history,
+    locked_item_ids,
+)
 
 router = APIRouter(prefix="/calendar-entries", tags=["calendar"])
 
@@ -53,31 +58,64 @@ class TryOnImageLink(BaseModel):
     try_on_result_id: int
 
 
+def _serialize(entry: CalendarEntry, db: Session) -> dict:
+    """One response shape for every calendar endpoint.
+
+    Four hand-rolled copies of this dict meant a new field (the locked outfit's
+    items) had to be added in four places or silently go missing from some
+    responses.
+    """
+    item_ids = locked_item_ids(entry)
+    items = (
+        db.query(ClothingItem).filter(ClothingItem.id.in_(item_ids)).all()
+        if item_ids
+        else []
+    )
+    by_id = {i.id: i for i in items}
+    return {
+        "id": entry.id,
+        "user_id": entry.user_id,
+        "date": entry.date,
+        "occasion_tag": entry.occasion_tag,
+        "locked_outfit_id": entry.locked_outfit_id,
+        "locked_item_ids": item_ids or None,
+        # Ordered as locked, so the client renders top-then-bottom-then-shoes.
+        "locked_outfit_items": [
+            {
+                "id": i.id,
+                "name": i.name,
+                "category": i.category,
+                "color": i.color,
+                "image_url": i.image_url,
+            }
+            for i in (by_id.get(iid) for iid in item_ids)
+            if i is not None
+        ],
+        "try_on_result_id": entry.try_on_result_id,
+        "try_on_result_image_url": (
+            entry.try_on_result.result_image_url if entry.try_on_result else None
+        ),
+        "created_at": entry.created_at,
+    }
+
+
+def _apply_updates(entry: CalendarEntry, updates: dict) -> None:
+    """Assign updates, JSON-encoding the item-id list for the Text column."""
+    for key, value in updates.items():
+        if key == "locked_item_ids":
+            entry.locked_item_ids = json.dumps(value) if value else None
+        else:
+            setattr(entry, key, value)
+
+
 @router.post("/", response_model=CalendarEntryResponse, status_code=201)
 def create_entry(entry: CalendarEntryCreate, db: Session = Depends(get_db)):
-    db_entry = CalendarEntry(**entry.model_dump())
+    db_entry = CalendarEntry()
+    _apply_updates(db_entry, entry.model_dump())
     db.add(db_entry)
     db.commit()
     db.refresh(db_entry)
-
-    try_on_result = (
-        db.query(TryOnResult)
-        .filter(TryOnResult.id == db_entry.try_on_result_id)
-        .first()
-        if db_entry.try_on_result_id
-        else None
-    )
-
-    return {
-        "id": db_entry.id,
-        "user_id": db_entry.user_id,
-        "date": db_entry.date,
-        "occasion_tag": db_entry.occasion_tag,
-        "locked_outfit_id": db_entry.locked_outfit_id,
-        "try_on_result_id": db_entry.try_on_result_id,
-        "try_on_result_image_url": try_on_result.result_image_url if try_on_result else None,
-        "created_at": db_entry.created_at,
-    }
+    return _serialize(db_entry, db)
 
 
 @router.get("/", response_model=list[CalendarEntryResponse])
@@ -99,19 +137,7 @@ def list_entries(
         parsed = date_parser.parse(end_date).date()
         query = query.filter(CalendarEntry.date <= parsed)
     entries = query.order_by(CalendarEntry.date.asc()).all()
-    return [
-        {
-            "id": e.id,
-            "user_id": e.user_id,
-            "date": e.date,
-            "occasion_tag": e.occasion_tag,
-            "locked_outfit_id": e.locked_outfit_id,
-            "try_on_result_id": e.try_on_result_id,
-            "try_on_result_image_url": e.try_on_result.result_image_url if e.try_on_result else None,
-            "created_at": e.created_at,
-        }
-        for e in entries
-    ]
+    return [_serialize(e, db) for e in entries]
 
 
 @router.patch("/{entry_id}", response_model=CalendarEntryResponse)
@@ -123,29 +149,10 @@ def update_entry(
     entry = db.query(CalendarEntry).filter(CalendarEntry.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Calendar entry not found")
-    for key, value in updates.model_dump(exclude_unset=True).items():
-        setattr(entry, key, value)
+    _apply_updates(entry, updates.model_dump(exclude_unset=True))
     db.commit()
     db.refresh(entry)
-
-    try_on_result = (
-        db.query(TryOnResult)
-        .filter(TryOnResult.id == entry.try_on_result_id)
-        .first()
-        if entry.try_on_result_id
-        else None
-    )
-
-    return {
-        "id": entry.id,
-        "user_id": entry.user_id,
-        "date": entry.date,
-        "occasion_tag": entry.occasion_tag,
-        "locked_outfit_id": entry.locked_outfit_id,
-        "try_on_result_id": entry.try_on_result_id,
-        "try_on_result_image_url": try_on_result.result_image_url if try_on_result else None,
-        "created_at": entry.created_at,
-    }
+    return _serialize(entry, db)
 
 
 @router.patch("/{entry_id}/try-on-image", response_model=CalendarEntryResponse)
@@ -156,33 +163,10 @@ def link_try_on_image(
 ):
     entry = db.query(CalendarEntry).filter(CalendarEntry.id == entry_id).first()
     if not entry:
-        today = date.today().isoformat()
-        entry = CalendarEntry(
-            user_id=1,
-            date=today,
-            try_on_result_id=payload.try_on_result_id,
-        )
-        db.add(entry)
-    else:
-        entry.try_on_result_id = payload.try_on_result_id
+        # Was fabricating a today-dated entry owned by user 1, which both
+        # ignored the requested entry_id and attributed it to the wrong user.
+        raise HTTPException(status_code=404, detail=f"Calendar entry {entry_id} not found")
+    entry.try_on_result_id = payload.try_on_result_id
     db.commit()
     db.refresh(entry)
-
-    try_on_result = (
-        db.query(TryOnResult)
-        .filter(TryOnResult.id == entry.try_on_result_id)
-        .first()
-        if entry.try_on_result_id
-        else None
-    )
-
-    return {
-        "id": entry.id,
-        "user_id": entry.user_id,
-        "date": entry.date,
-        "occasion_tag": entry.occasion_tag,
-        "locked_outfit_id": entry.locked_outfit_id,
-        "try_on_result_id": entry.try_on_result_id,
-        "try_on_result_image_url": try_on_result.result_image_url if try_on_result else None,
-        "created_at": entry.created_at,
-    }
+    return _serialize(entry, db)

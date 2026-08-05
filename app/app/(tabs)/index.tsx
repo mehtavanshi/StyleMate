@@ -37,18 +37,25 @@ import {
   outfitApi,
   OutfitSuggestion,
   shoppingApi,
-  uploadApi,
   WeatherOutfitResponse,
 } from "../../lib/api";
-import { resolvePhotoUrl, MAX_LONG_EDGE_PX, JPEG_QUALITY } from "../../lib/constants";
+import { resolvePhotoUrl } from "../../lib/constants";
 import { BASE_URL } from "../../config/api";
-import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
-import * as ImagePicker from "expo-image-picker";
 import TryOnUsageBadge from "../../components/TryOnUsageBadge";
 import Avatar from "../../components/Avatar";
 import { useTabScreenPadding } from "../../lib/useTabScreenPadding";
 
 const ONBOARDING_FLAG = "onboarding_complete";
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Hand-rolled instead of toLocaleDateString — Intl is not guaranteed on Hermes.
+const formatDay = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  if (isNaN(d.getTime())) return iso;
+  return `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+};
 
 export default function HomeScreen() {
   const [checked, setChecked] = useState(false);
@@ -64,12 +71,14 @@ export default function HomeScreen() {
   const loadHomeData = useCallback(async () => {
     setOutfitLoading(true);
     try {
-      const [outfits, items, entries] = await Promise.all([
+      const [suggestions, items, entries] = await Promise.all([
         outfitApi.suggest({ limit: 1 }),
         clothingApi.list(),
         calendarApi.list({ start_date: new Date().toISOString().split("T")[0] }),
       ]);
-      if (outfits.length > 0) setTodaysOutfit(outfits[0]);
+      // /outfit-suggestions returns { outfits, total } — the old code read
+      // .length off the envelope, so Today's Outfit never rendered.
+      if (suggestions.outfits?.length) setTodaysOutfit(suggestions.outfits[0]);
       const stats: Record<string, number> = {};
       for (const item of items) {
         stats[item.category] = (stats[item.category] || 0) + 1;
@@ -141,73 +150,10 @@ export default function HomeScreen() {
     );
   };
 
-  const handleAvatarPress = () => {
-    Alert.alert("Profile Photo", "Choose an option", [
-      { text: "Choose from Library", onPress: handlePickFromLibrary },
-      { text: "Take Photo", onPress: handleTakePhoto },
-      ...(consentStatus?.photo_url
-        ? [{ text: "Remove Photo", style: "destructive" as const, onPress: handleRemovePhoto }]
-        : []),
-      { text: "Cancel", style: "cancel" },
-    ]);
-  };
-
-  const handlePickFromLibrary = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission needed", "Please grant photo library access.");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 1,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    await uploadAndSetPhoto(result.assets[0].uri);
-  };
-
-  const handleTakePhoto = async () => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission needed", "Please grant camera access.");
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 1,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    await uploadAndSetPhoto(result.assets[0].uri);
-  };
-
-  const uploadAndSetPhoto = async (uri: string) => {
-    try {
-      const manipulated = await ImageManipulator.manipulate(uri)
-        .resize({ width: MAX_LONG_EDGE_PX })
-        .renderAsync();
-      const compressed = await manipulated.saveAsync({
-        compress: JPEG_QUALITY,
-        format: SaveFormat.JPEG,
-      });
-      const { image_url } = await uploadApi.uploadImage(
-        compressed.uri,
-        "photo.jpg",
-        "image/jpeg",
-      );
-      const updated = await consentApi.setPhoto(DEMO_USER_ID, image_url);
-      setConsentStatus(updated);
-    } catch {
-      Alert.alert("Error", "Could not update photo. Please try again.");
-    }
-  };
-
-  const handleRemovePhoto = async () => {
-    try {
-      await consentApi.deletePhoto(DEMO_USER_ID);
-      setConsentStatus((prev) => (prev ? { ...prev, photo_url: null } : null));
-    } catch {
-      Alert.alert("Error", "Could not remove photo. Please try again.");
-    }
-  };
+  // Settings is the profile screen: it manages the same photo (upload,
+  // replace, delete) on a routed screen with a back button, instead of an
+  // Alert action sheet the user can't navigate back from.
+  const handleAvatarPress = () => router.push("/settings");
 
   const { paddingBottom } = useTabScreenPadding();
 
@@ -226,7 +172,7 @@ export default function HomeScreen() {
           />
           <TouchableOpacity
             style={styles.settingsBtn}
-            onPress={() => router.push("/app/settings")}
+            onPress={() => router.push("/settings")}
             accessibilityLabel="Settings"
           >
             <Settings size={22} color={colors.accent} strokeWidth={1.5} />
@@ -409,14 +355,57 @@ export default function HomeScreen() {
             <View style={styles.divider} />
             <Text style={styles.sectionLabel}>Upcoming</Text>
             <TouchableOpacity
-              style={styles.linkButton}
+              style={styles.outfitCard}
               onPress={() => router.push("/(tabs)/calendar")}
+              activeOpacity={0.85}
             >
-              <Text style={styles.linkButtonText}>
-                {nextCalendarEntry.date}
-                {nextCalendarEntry.occasion_tag ? ` · ${nextCalendarEntry.occasion_tag}` : ""}
-                {nextCalendarEntry.locked_outfit_id != null ? " ✓" : ""}
-              </Text>
+              {/* ponytail: try-on render first, otherwise the outfit's own
+                  item images. A single merged top+bottom+shoes image needs the
+                  full-outfit try-on model from third_new_feature.md — not built
+                  yet, but the date no longer renders as a bare number. */}
+              {nextCalendarEntry.try_on_result_image_url ? (
+                <Image
+                  source={{
+                    uri:
+                      resolvePhotoUrl(nextCalendarEntry.try_on_result_image_url, BASE_URL) ??
+                      undefined,
+                  }}
+                  style={styles.upcomingImage}
+                  resizeMode="cover"
+                />
+              ) : nextCalendarEntry.locked_outfit_items?.length ? (
+                <View style={styles.outfitThumbs}>
+                  {nextCalendarEntry.locked_outfit_items.slice(0, 4).map((it) => (
+                    <View key={it.id} style={styles.outfitThumb}>
+                      {it.image_url ? (
+                        <Image
+                          source={{ uri: resolvePhotoUrl(it.image_url, BASE_URL) ?? undefined }}
+                          style={styles.outfitThumbImg}
+                        />
+                      ) : (
+                        <View style={[styles.outfitThumbImg, styles.outfitThumbPlaceholder]}>
+                          <Text style={styles.outfitThumbLetter}>
+                            {(it.name || it.category)?.[0]?.toUpperCase() || "?"}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View style={[styles.upcomingImage, styles.outfitThumbPlaceholder]}>
+                  <Text style={styles.upcomingEmpty}>No outfit picked yet</Text>
+                </View>
+              )}
+              <View style={styles.outfitMeta}>
+                <Text style={styles.upcomingDate}>{formatDay(nextCalendarEntry.date)}</Text>
+                {nextCalendarEntry.occasion_tag ? (
+                  <Text style={styles.upcomingTag}>{nextCalendarEntry.occasion_tag}</Text>
+                ) : null}
+                {nextCalendarEntry.locked_outfit_id != null && (
+                  <Text style={styles.upcomingLocked}>locked</Text>
+                )}
+              </View>
             </TouchableOpacity>
           </>
         )}
@@ -468,7 +457,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  scrollContent: { alignItems: "center", padding: spacing.xl },
+  scrollContent: { alignItems: "center", padding: spacing.xl, width: "100%", maxWidth: 760, alignSelf: "center" },
   headerRow: { flexDirection: "row", alignItems: "flex-start", width: "100%", marginBottom: spacing.xxl - 4 },
   settingsBtn: { padding: spacing.sm, marginTop: spacing.xs },
   title: { fontSize: fontSize.xxxl, fontWeight: fontWeight.extrabold },
@@ -545,6 +534,25 @@ const styles = StyleSheet.create({
   outfitThumbPlaceholder: { alignItems: "center", justifyContent: "center" },
   outfitThumbLetter: { fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: colors.text.light },
   outfitMeta: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
+  upcomingImage: {
+    width: "100%",
+    height: 160,
+    borderRadius: br.sm,
+    backgroundColor: "#e0e0e0",
+    marginBottom: spacing.sm,
+  },
+  upcomingDate: { flex: 1, fontSize: fontSize.base, fontWeight: fontWeight.bold, color: colors.text.primary },
+  upcomingTag: {
+    fontSize: fontSize.xs,
+    color: colors.accent,
+    backgroundColor: colors.background,
+    borderRadius: br.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs - 1,
+    textTransform: "capitalize",
+  },
+  upcomingLocked: { fontSize: fontSize.xs, color: colors.success, fontWeight: fontWeight.semibold },
+  upcomingEmpty: { fontSize: fontSize.sm, color: colors.text.light },
   outfitReason: { flex: 1, fontSize: fontSize.xs, color: "#666", fontStyle: "italic" },
   outfitScoreRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs - 1 },
   outfitScore: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: colors.accent },

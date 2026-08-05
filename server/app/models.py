@@ -66,7 +66,13 @@ class CalendarEntry(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     date = Column(Date, nullable=False)
     occasion_tag = Column(String, nullable=True)
+    # Primary item of the locked outfit. Kept for older rows and as the marker
+    # that a date is locked; locked_item_ids is what actually describes the look.
     locked_outfit_id = Column(Integer, nullable=True)
+    # JSON list of every item id in the locked outfit. A calendar entry that
+    # remembered one garment could not render the outfit, and wear analytics
+    # counted only that garment as worn.
+    locked_item_ids = Column(Text, nullable=True)
     try_on_result_id = Column(Integer, ForeignKey("try_on_results.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

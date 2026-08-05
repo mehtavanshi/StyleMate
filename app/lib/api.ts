@@ -412,12 +412,25 @@ export const shopMatchApi = {
   },
 };
 
+export interface CalendarOutfitItem {
+  id: number;
+  name: string | null;
+  category: string | null;
+  color: string | null;
+  image_url: string | null;
+}
+
 export interface CalendarEntry {
   id: number;
   user_id: number;
   date: string;
   occasion_tag: string | null;
+  /** Primary item — kept as the "this date is locked" marker. */
   locked_outfit_id: number | null;
+  /** Every item in the locked outfit. */
+  locked_item_ids: number[] | null;
+  /** Those items resolved, in locked order, ready to render. */
+  locked_outfit_items: CalendarOutfitItem[];
   try_on_result_id: number | null;
   try_on_result_image_url: string | null;
   created_at: string;
@@ -436,7 +449,14 @@ export const calendarApi = {
       method: "POST",
       body: JSON.stringify({ ...entry, user_id: DEMO_USER_ID }),
     }),
-  update: (id: number, updates: { occasion_tag?: string; locked_outfit_id?: number | null }) =>
+  update: (
+    id: number,
+    updates: {
+      occasion_tag?: string;
+      locked_outfit_id?: number | null;
+      locked_item_ids?: number[] | null;
+    },
+  ) =>
     apiFetch<CalendarEntry>(`/calendar-entries/${id}`, {
       method: "PATCH",
       body: JSON.stringify(updates),

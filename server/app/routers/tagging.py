@@ -19,7 +19,15 @@ router = APIRouter(tags=["tagging"])
 
 # Primary tagging: local FashionCLIP (free, no rate limits).
 # Secondary: Gemini free tier (~1,500 req/day), used only when TAGGING_PROVIDER=vision_api.
+TAGGING_PROVIDERS = ("fashion_clip", "vision_api")
 TAGGING_PROVIDER = os.environ.get("TAGGING_PROVIDER", "fashion_clip")
+if TAGGING_PROVIDER not in TAGGING_PROVIDERS:
+    # A typo used to fall through to the paid Gemini path and quietly spend
+    # API credits. Fail at import instead.
+    raise RuntimeError(
+        f"Unknown TAGGING_PROVIDER={TAGGING_PROVIDER!r}; "
+        f"expected one of {', '.join(TAGGING_PROVIDERS)}"
+    )
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
 GEMINI_API_URL = os.environ.get(
@@ -480,7 +488,9 @@ def _tag_item_fashion_clip(image_url: str) -> dict:
     # the model into seeing the background as the dominant colour.
     if (
         tags.get("dominant_color") == "white"
-        and confidence.get("dominant_color", 1.0) < 0.35
+        # Missing confidence means the classifier never scored it — treat that
+        # as untrustworthy (0.0) so the sanity check runs, not as certainty.
+        and confidence.get("dominant_color", 0.0) < 0.35
     ):
         from app.style_embeddings import _center_luminance
 

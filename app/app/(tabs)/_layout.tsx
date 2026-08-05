@@ -14,6 +14,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Home",
+          headerShown: false, // screen draws its own StyleMate header
           tabBarIcon: ({ color, size }) => <House color={color} size={size} strokeWidth={1.5} />,
         }}
       />
@@ -35,6 +36,7 @@ export default function TabsLayout() {
         name="outfit-suggestions"
         options={{
           title: "Outfits",
+          headerShown: false, // screen draws its own header + refresh button
           tabBarIcon: ({ color, size }) => <Sparkles color={color} size={size} strokeWidth={1.5} />,
         }}
       />

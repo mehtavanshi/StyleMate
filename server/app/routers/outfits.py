@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -198,6 +198,23 @@ def create_outfit_feedback(
     db: Session = Depends(get_db),
 ):
     import json
+
+    # Feedback is training data — accepting any (user_id, item_ids) pair let a
+    # caller poison another user's recommendations. The items must be theirs.
+    if payload.outfit_item_ids:
+        owned = (
+            db.query(ClothingItem.id)
+            .filter(
+                ClothingItem.id.in_(payload.outfit_item_ids),
+                ClothingItem.user_id == payload.user_id,
+            )
+            .count()
+        )
+        if owned != len(set(payload.outfit_item_ids)):
+            raise HTTPException(
+                status_code=403,
+                detail="Feedback must reference items owned by this user.",
+            )
 
     db_feedback = OutfitFeedback(
         user_id=payload.user_id,

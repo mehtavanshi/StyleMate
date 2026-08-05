@@ -1,17 +1,35 @@
+import logging
 from threading import Thread
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.database import SessionLocal, get_db
+from app.database import get_db
 from app.matching_service import complete_outfit, suggest_matches
 from app.models import ClothingItem
 from app.pair_cache import invalidate_item
 from app.routers.tagging import score_to_formality_label
 from app.schemas import ClothingItemCreate, ClothingItemUpdate, ClothingItemResponse
-from app.style_embeddings import compute_and_store_embedding
+from app.tasks import execute_embedding_job, run_embedding_job
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/clothing", tags=["clothing"])
+
+
+def dispatch_embedding_job(item_id: int) -> None:
+    """Queue the embedding computation; same Celery-then-thread ladder as try-on.
+
+    A bare Thread was lost on restart, so an item created just before a deploy
+    kept a neutral 0.5 similarity forever. Celery retries it instead.
+    """
+    try:
+        run_embedding_job.delay(item_id)
+    except Exception:
+        logger.warning(
+            "Celery unavailable, computing embedding for item %s in a thread", item_id
+        )
+        Thread(target=execute_embedding_job, args=(item_id,), daemon=True).start()
 
 
 @router.get("/", response_model=list[ClothingItemResponse])
@@ -45,18 +63,7 @@ def create_item(item: ClothingItemCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_item)
 
-    def _bg_compute():
-        session = SessionLocal()
-        try:
-            compute_and_store_embedding(db_item.id, session)
-            # The embedding feeds score_pair, so any pair scored before it
-            # landed used a neutral 0.5 similarity and is now stale.
-            invalidate_item(session, db_item.id)
-            session.commit()
-        finally:
-            session.close()
-
-    Thread(target=_bg_compute, daemon=True).start()
+    dispatch_embedding_job(db_item.id)
 
     return db_item
 

@@ -64,14 +64,17 @@ def _clean_score(raw) -> dict | None:
     }
 
 
-def rate_outfit_photo(photo_url: str) -> dict:
+def rate_outfit_photo(photo_url: str, user_id: int | None = None) -> dict:
     """Structured fashion rating for a photo.
 
     Returns ``{"available": False, "message": ...}`` when Gemini is unset,
     unreachable, or reports no outfit in frame — the client shows that message
     rather than fabricating scores.
     """
-    cached = _cache.get(photo_url)
+    # Keyed by user too: a bare-URL key served one user's rating to anyone who
+    # rated the same URL, and the rating will grow user context over time.
+    cache_key = (user_id, photo_url)
+    cached = _cache.get(cache_key)
     if cached is not None:
         return cached
 
@@ -111,5 +114,5 @@ def rate_outfit_photo(photo_url: str) -> dict:
             if isinstance(c, str)
         ][:5],
     }
-    _cache[photo_url] = result
+    _cache[cache_key] = result
     return result

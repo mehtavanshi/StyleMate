@@ -89,8 +89,10 @@ class TestScoreOutfit:
         assert score < 0.5
 
     def test_empty_outfit(self):
+        # No pairs to judge → the neutral baseline, the same as a one-item
+        # outfit. The old 0.0-vs-0.5 split made the baseline size-dependent.
         score, reason, breakdown = score_outfit([])
-        assert score == 0.0
+        assert score == 0.5
         assert reason == "Empty outfit"
 
 

@@ -85,6 +85,14 @@ interface TryOnCardState {
   messageIndex: number;
 }
 
+/** Stable identity for an outfit — its item ids, order-independent. */
+function outfitKey(outfit: OutfitSuggestion): string {
+  return outfit.items
+    .map((i) => i.id)
+    .sort((a, b) => a - b)
+    .join("-");
+}
+
 function scoreColor(score: number): string {
   if (score >= 0.8) return "#2ECC71";
   if (score >= 0.5) return "#E8A317";
@@ -237,7 +245,7 @@ export default function OutfitSuggestionsScreen() {
   const [loading, setLoading] = useState(true);
   const [selectedOccasion, setSelectedOccasion] = useState<string | null>(null);
   const [selectedTargetGender, setSelectedTargetGender] = useState<string | null>(null);
-  const [feedbackGiven, setFeedbackGiven] = useState<Record<string, boolean>>({});
+  const [feedbackGiven, setFeedbackGiven] = useState<Record<string, "like" | "dislike">>({});
   const [pendingFeedback, setPendingFeedback] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<string | null>(null);
   const [shoppingGroups, setShoppingGroups] = useState<ShoppingGroup[]>([]);
@@ -512,11 +520,12 @@ export default function OutfitSuggestionsScreen() {
   }, [rotateMessages]);
 
   const submitFeedback = async (key: string, itemIds: number[], liked: boolean) => {
-    if (feedbackGiven[key] || pendingFeedback[key]) return;
+    // Re-tapping the same choice is a no-op; the opposite one switches it.
+    if (pendingFeedback[key] || feedbackGiven[key] === (liked ? "like" : "dislike")) return;
     setPendingFeedback((p) => ({ ...p, [key]: true }));
     try {
       await feedbackApi.create(itemIds, liked);
-      setFeedbackGiven((g) => ({ ...g, [key]: true }));
+      setFeedbackGiven((g) => ({ ...g, [key]: liked ? "like" : "dislike" }));
       showToast(liked ? "Liked outfit" : "Noted — outfit disliked");
     } catch (e: any) {
       Alert.alert("Error", e.message);
@@ -526,15 +535,21 @@ export default function OutfitSuggestionsScreen() {
   };
 
   const renderCard = ({ item, index }: { item: OutfitSuggestion; index: number }) => {
-    const key = `suggestion-${index}`;
+    // Keyed by the outfit's items, not its list position: after a refresh or
+    // filter change position N holds a different outfit, so index keys leaked
+    // one outfit's feedback, try-on result and explanation onto another.
+    const key = outfitKey(item);
     const given = feedbackGiven[key];
     const pending = pendingFeedback[key];
     const itemIds = item.items.map((o) => o.id);
     const tryOnState = tryOnStates[key] || { status: "idle", messageIndex: 0 };
     const isTryOnActive = tryOnState.status === "loading" || tryOnState.status === "processing";
 
+    const liked = given === "like";
+    const disliked = given === "dislike";
+
     return (
-      <View style={[styles.card, given && styles.cardFeedbackGiven]}>
+      <View style={styles.card}>
         <View style={styles.cardImages}>
           {item.items.map((outfitItem) => (
             <View key={outfitItem.id} style={styles.thumbOuter}>
@@ -594,26 +609,42 @@ export default function OutfitSuggestionsScreen() {
 
         <View style={styles.feedbackRow}>
           <TouchableOpacity
-            style={[styles.feedbackBtn, given && styles.feedbackBtnDisabled]}
-            disabled={given || pending}
+            style={[styles.feedbackBtn, liked ? styles.feedbackBtnLikeOn : styles.feedbackBtnIdle]}
+            disabled={pending}
+            accessibilityRole="button"
+            accessibilityState={{ selected: liked }}
+            accessibilityLabel={liked ? "Liked — tap dislike to change" : "Like this outfit"}
             onPress={() => submitFeedback(key, itemIds, true)}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <ThumbsUp size={16} color={given ? "#999" : "#333"} strokeWidth={1.5} />
-              <Text style={[styles.feedbackBtnText, given && styles.feedbackBtnTextDone]}>
-                {given ? "Saved" : "Like"}
+            <View style={styles.feedbackBtnInner}>
+              <ThumbsUp
+                size={16}
+                color={liked ? colors.text.white : colors.text.primary}
+                strokeWidth={1.5}
+                fill={liked ? colors.text.white : "transparent"}
+              />
+              <Text style={[styles.feedbackBtnText, liked && styles.feedbackBtnTextOn]}>
+                {liked ? "Liked" : "Like"}
               </Text>
             </View>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.feedbackBtn, styles.feedbackBtnDislike, given && styles.feedbackBtnDisabled]}
-            disabled={given || pending}
+            style={[styles.feedbackBtn, disliked ? styles.feedbackBtnDislikeOn : styles.feedbackBtnIdle]}
+            disabled={pending}
+            accessibilityRole="button"
+            accessibilityState={{ selected: disliked }}
+            accessibilityLabel={disliked ? "Disliked — tap like to change" : "Dislike this outfit"}
             onPress={() => submitFeedback(key, itemIds, false)}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <ThumbsDown size={16} color={given ? "#999" : "#333"} strokeWidth={1.5} />
-              <Text style={[styles.feedbackBtnText, given && styles.feedbackBtnTextDone]}>
-                {given ? "Saved" : "Dislike"}
+            <View style={styles.feedbackBtnInner}>
+              <ThumbsDown
+                size={16}
+                color={disliked ? colors.text.white : colors.text.primary}
+                strokeWidth={1.5}
+                fill={disliked ? colors.text.white : "transparent"}
+              />
+              <Text style={[styles.feedbackBtnText, disliked && styles.feedbackBtnTextOn]}>
+                {disliked ? "Disliked" : "Dislike"}
               </Text>
             </View>
           </TouchableOpacity>
@@ -816,7 +847,8 @@ export default function OutfitSuggestionsScreen() {
         </View>
       )}
 
-      {/* Occasion chips */}
+      {/* Filters — one bar with one bottom border. Two separately-bordered
+          bars stacked a double divider and a dead gap under the search box. */}
       <View style={styles.chipBar}>
         <FlatList
           horizontal
@@ -836,10 +868,6 @@ export default function OutfitSuggestionsScreen() {
             );
           }}
         />
-      </View>
-
-      {/* Gender chips */}
-      <View style={styles.chipBar}>
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -878,7 +906,7 @@ export default function OutfitSuggestionsScreen() {
       ) : (
         <ScrollView contentContainerStyle={[styles.list, { paddingBottom }]}>
           {cachedOutfits.map((item, index) => (
-            <View key={`suggestion-${index}`}>{renderCard({ item, index })}</View>
+            <View key={`${outfitKey(item)}-${index}`}>{renderCard({ item, index })}</View>
           ))}
           {cachedOutfits.length < totalCount && (
             <TouchableOpacity
@@ -1003,14 +1031,14 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   whyText: { fontSize: fontSize.sm, color: colors.text.primary, lineHeight: 20 },
-  chipList: { paddingHorizontal: spacing.md, paddingTop: spacing.sm + 2 },
-  chip: { paddingHorizontal: spacing.sm + 6, paddingVertical: spacing.xs + 3, borderRadius: 20, backgroundColor: "#e8e8e8", marginRight: spacing.sm },
+  chipList: { paddingHorizontal: spacing.md, paddingTop: spacing.sm },
+  chip: { paddingHorizontal: spacing.sm + 6, paddingVertical: spacing.xs + 3, borderRadius: 20, backgroundColor: colors.surfaceSunken, marginRight: spacing.sm },
   chipActive: { backgroundColor: colors.accent },
-  chipText: { fontSize: fontSize.xs + 1, color: "#666", textTransform: "capitalize" },
+  chipText: { fontSize: fontSize.xs + 1, color: colors.text.secondary, textTransform: "capitalize" },
   chipTextActive: { color: colors.text.white },
 
   // List
-  list: { padding: spacing.md },
+  list: { padding: spacing.md, width: "100%", maxWidth: 760, alignSelf: "center" },
 
   // Load More button
   loadMoreBtn: {
@@ -1034,7 +1062,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm + 6,
     ...shadow.md,
   },
-  cardFeedbackGiven: { opacity: 0.6 },
   feedbackRow: {
     flexDirection: "row",
     gap: spacing.sm + 2,
@@ -1044,23 +1071,17 @@ const styles = StyleSheet.create({
   },
   feedbackBtn: {
     flex: 1,
-    backgroundColor: colors.success + "55",
-    borderRadius: br.md,
+    borderRadius: br.full,
     paddingVertical: spacing.sm + 2,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.success,
   },
-  feedbackBtnDislike: {
-    backgroundColor: colors.danger + "33",
-    borderColor: colors.danger,
-  },
-  feedbackBtnDisabled: {
-    backgroundColor: "#eeeeee",
-    borderColor: "#cccccc",
-  },
-  feedbackBtnText: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: "#1c1c1c" },
-  feedbackBtnTextDone: { color: colors.text.light },
+  feedbackBtnInner: { flexDirection: "row", alignItems: "center", gap: spacing.xs + 2 },
+  feedbackBtnIdle: { backgroundColor: colors.background, borderColor: "#dcdcdc" },
+  feedbackBtnLikeOn: { backgroundColor: colors.success, borderColor: colors.success },
+  feedbackBtnDislikeOn: { backgroundColor: colors.danger, borderColor: colors.danger },
+  feedbackBtnText: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: colors.text.primary },
+  feedbackBtnTextOn: { color: colors.text.white },
 
   // Toast
   toastWrap: {

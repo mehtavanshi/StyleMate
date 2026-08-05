@@ -92,6 +92,7 @@ def gemini_text(
     max_tokens: int = 500,
     temperature: float = 0.4,
     image_url: str | None = None,
+    timeout: float = 60.0,
 ) -> str | None:
     """One Gemini generateContent call. Returns the raw text, or None on failure.
 
@@ -130,7 +131,7 @@ def gemini_text(
     api_url = GEMINI_API_URL.replace("{model}", GEMINI_MODEL)
 
     try:
-        with httpx.Client(timeout=60.0) as client:
+        with httpx.Client(timeout=timeout) as client:
             resp = call_with_retry(
                 lambda: client.post(api_url, json=payload, headers=headers)
             )
@@ -146,9 +147,10 @@ def gemini_json(
     max_tokens: int = 500,
     temperature: float = 0.2,
     image_url: str | None = None,
+    timeout: float = 60.0,
 ) -> dict | None:
     """``gemini_text`` + markdown-fence-tolerant JSON parse. None on failure."""
-    raw = gemini_text(prompt, max_tokens, temperature, image_url)
+    raw = gemini_text(prompt, max_tokens, temperature, image_url, timeout)
     if raw is None:
         return None
     parsed = _parse_advice_response(raw)

@@ -21,9 +21,9 @@ from app.config import load_body_type_rules
 from app.models import User, ClothingItem
 from app.celery_app import celery_app  # noqa: F401
 from app.routers import users, clothing, upload, tagging, outfits, calendar, shopping, style_match, shop_matches, style_advice, tryon, packing, fashion_rating
+from app.routers.clothing import dispatch_embedding_job
 from app.schemas import ClothingItemCreate, ClothingItemResponse
 from app.storage import get_storage_provider
-from app.style_embeddings import compute_and_store_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -86,14 +86,7 @@ def create_clothing_item(item: ClothingItemCreate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(db_item)
 
-    def _bg_compute():
-        session = SessionLocal()
-        try:
-            compute_and_store_embedding(db_item.id, session)
-        finally:
-            session.close()
-
-    Thread(target=_bg_compute, daemon=True).start()
+    dispatch_embedding_job(db_item.id)
 
     return db_item
 

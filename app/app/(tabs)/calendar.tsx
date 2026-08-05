@@ -12,6 +12,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+const SCREEN_EDGES = ["left", "right", "bottom"] as const;
 import { Calendar, DateData } from "react-native-calendars";
 import { router, useFocusEffect } from "expo-router";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
@@ -27,6 +29,7 @@ import { BASE_URL } from "../../config/api";
 import { resolveImageUrl } from "../../lib/constants";
 import { borderRadius as br, colors, fontSize, fontWeight, spacing } from "../../theme/tokens";
 import { Repeat, Star } from "../../lib/icons";
+import { padToRows } from "../../lib/useGridColumns";
 
 const OCCASIONS = [
   "casual",
@@ -223,12 +226,16 @@ export default function CalendarScreen() {
 
   const handleLock = async (suggestion: OutfitSuggestion) => {
     if (!activeEntry) return;
-    const outfitId = suggestion.items[0]?.id;
+    const itemIds = suggestion.items.map((it) => it.id);
+    const outfitId = itemIds[0];
     if (!outfitId) return;
     setLockingIndex(outfitId);
     try {
       const updated = await calendarApi.update(activeEntry.id, {
+        // The whole outfit, not just its first piece — that was why a locked
+        // date could only ever show one garment.
         locked_outfit_id: outfitId,
+        locked_item_ids: itemIds,
       });
       setEntries((prev) =>
         prev.map((e) => (e.id === updated.id ? updated : e))
@@ -266,8 +273,9 @@ export default function CalendarScreen() {
 
   const handleRegenerateTryOn = () => {
     setViewerVisible(false);
-    Alert.alert("Re-generate", "This would re-run the try-on. Redirecting to outfits.");
-    router.push("/outfits");
+    // "/outfits" is not a route — this raised "no route found". Try-on is
+    // re-run from the outfit-suggestions tab.
+    router.push("/(tabs)/outfit-suggestions");
   };
 
   const handleDayPress = (day: DateData) => {
@@ -280,7 +288,7 @@ export default function CalendarScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={SCREEN_EDGES} style={styles.container}>
       {loading ? (
         <View style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Loading calendar">
           <ActivityIndicator size="large" color="#333" />
@@ -365,6 +373,28 @@ export default function CalendarScreen() {
               </View>
             )}
 
+            {/* The outfit locked for this date. Previously the sheet showed
+                only a try-on render, so a locked date with no try-on looked
+                empty even though an outfit was scheduled. */}
+            {activeEntry?.locked_outfit_items?.length ? (
+              <>
+                <Text style={styles.sectionLabel}>Locked outfit</Text>
+                <View style={styles.lockedOutfitRow}>
+                  {activeEntry.locked_outfit_items.map((it) => (
+                    <OutfitThumb
+                      key={it.id}
+                      item={{
+                        id: it.id,
+                        name: it.name,
+                        category: it.category || "",
+                        image_url: it.image_url,
+                      }}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : null}
+
             {/* Occasion chips */}
             <Text style={styles.sectionLabel}>Occasion</Text>
             <ScrollView
@@ -409,12 +439,22 @@ export default function CalendarScreen() {
               </View>
             ) : (
               <FlatList
-                data={suggestions}
-                keyExtractor={(_, i) => `sug-${i}`}
-                horizontal
-                showsHorizontalScrollIndicator={false}
+                // Padded so an odd count doesn't stretch the last card across
+                // the whole row (flex: 1 cells).
+                data={padToRows(suggestions, 2)}
+                // Keyed by the outfit's items, not its position: refiltering by
+                // occasion puts a different outfit at index N.
+                keyExtractor={(sug, i) =>
+                  sug ? sug.items.map((it) => it.id).sort((a, b) => a - b).join("-") : `spacer-${i}`
+                }
+                // Two per row, scrolling vertically. The horizontal list buried
+                // everything past the second card off the right edge of a sheet
+                // that already scrolls vertically.
+                numColumns={2}
+                columnWrapperStyle={styles.suggestionColumn}
                 contentContainerStyle={styles.suggestionRow}
-                renderItem={({ item: sug, index }) => {
+                renderItem={({ item: sug }) => {
+                  if (!sug) return <View style={styles.suggestionCard} />;
                   const isLocked = activeEntry?.locked_outfit_id != null &&
                     sug.items.some((it) => it.id === activeEntry!.locked_outfit_id);
                   const isLocking = lockingIndex != null && sug.items.some((it) => it.id === lockingIndex);
@@ -592,14 +632,24 @@ const styles = StyleSheet.create({
   chipText: { fontSize: fontSize.xs + 1, color: "#666", textTransform: "capitalize" },
   chipTextActive: { color: colors.text.white },
 
+  lockedOutfitRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.sm,
+  },
+
   // Suggestions
-  suggestionRow: { paddingHorizontal: spacing.lg, gap: spacing.md },
+  suggestionRow: { paddingHorizontal: spacing.lg, gap: spacing.md, paddingBottom: spacing.md },
+  suggestionColumn: { gap: spacing.md },
   sheetCenter: { height: 80, alignItems: "center", justifyContent: "center" },
   emptyText: { fontSize: fontSize.sm, color: colors.text.tertiary },
 
   // Suggestion card
   suggestionCard: {
-    width: 200,
+    // flex, not a fixed 200: the card now sizes to its half of the row.
+    flex: 1,
     backgroundColor: "#f9f9f9",
     borderRadius: br.md,
     overflow: "hidden",
@@ -618,7 +668,8 @@ const styles = StyleSheet.create({
   },
   repeatText: { fontSize: fontSize.xs, color: colors.text.primary, lineHeight: 16 },
   repeatAlt: { fontSize: fontSize.xs, color: colors.text.secondary, marginTop: 2 },
-  suggestionThumbs: { flexDirection: "row", padding: spacing.sm, gap: spacing.xs + 2 },
+  // wrap: a 3-item outfit no longer fits on one line in a half-width card.
+  suggestionThumbs: { flexDirection: "row", flexWrap: "wrap", padding: spacing.sm, gap: spacing.xs + 2 },
   suggestionReason: {
     fontSize: fontSize.xs,
     color: "#666",

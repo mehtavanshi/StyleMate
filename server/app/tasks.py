@@ -113,3 +113,29 @@ def _extract_garment_id(record: TryOnResult | None) -> str:
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=10)
 def run_tryon_job(self, job_id: str) -> None:
     execute_tryon_job(job_id)
+
+
+def execute_embedding_job(item_id: int) -> None:
+    """Compute + store an item's FashionCLIP embedding and drop its stale pairs.
+
+    Until the embedding lands, score_pair falls back to a neutral 0.5 similarity
+    for every pair involving this item, so the cached pairs have to go with it.
+    """
+    from app.pair_cache import invalidate_item
+    from app.style_embeddings import compute_and_store_embedding
+
+    db = SessionLocal()
+    try:
+        compute_and_store_embedding(item_id, db)
+        invalidate_item(db, item_id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("embedding job failed for item %s", item_id)
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, max_retries=2, default_retry_delay=10)
+def run_embedding_job(self, item_id: int) -> None:
+    execute_embedding_job(item_id)

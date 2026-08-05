@@ -46,7 +46,9 @@ def rule_for_temp(temp_c: float) -> dict:
     for low, high, rule in TEMP_RULES:
         if low <= temp_c < high:
             return rule
-    return TEMP_RULES[-1][1]
+    # Index 2 is the rule dict — [1] returned the range's upper bound, so any
+    # temperature outside every range (>=60°C, NaN) handed callers a float.
+    return TEMP_RULES[-1][2]
 
 
 def get_weather(city: str | None = None) -> dict | None:
